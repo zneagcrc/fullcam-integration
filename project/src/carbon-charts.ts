@@ -1,3 +1,5 @@
+import type { CarbonPeriodResult, CarbonResults } from './spatial-data-updater';
+
 export interface CarbonAnalysisRange {
   startYear: number;
   startStepInYear: number;
@@ -430,4 +432,41 @@ export function renderStepSequestrationCharts(
   renderCarbonTotalChart(totalContainer, cumulativeTotals, sharedTickIndices);
 
   return { success: true };
+}
+
+function formatCarbon(value: number, signed: boolean): string {
+  const text = value.toFixed(2);
+  return signed && value > 0 ? `+${text}` : text;
+}
+
+function renderResultCard(label: string, result: CarbonPeriodResult, areaHectares: number, valueClass: string, signed: boolean): string {
+  return `
+    <div class="stat-card">
+      <div class="stat-label">${label}</div>
+      <div class="stat-value ${valueClass}">${formatCarbon(result.perHectare, signed)}<span class="stat-unit">tC/ha</span></div>
+      <div class="stat-detail">${formatCarbon(result.perHectare * areaHectares, signed)} tC over ${areaHectares} ha</div>
+      <div class="stat-detail">${result.fromLabel} – ${result.toLabel}</div>
+    </div>`;
+}
+
+/**
+ * Renders planting, clearing and net carbon result cards plus explanatory notes
+ */
+export function renderCarbonResults(container: HTMLElement | null, results: CarbonResults, areaHectares: number): void {
+  if (!container) {
+    return;
+  }
+
+  const cards = [
+    results.planting && renderResultCard('Sequestered in planting', results.planting, areaHectares, '', false),
+    results.clearing && renderResultCard('Released by clearing', results.clearing, areaHectares, 'stat-value-loss', false),
+    results.net &&
+      renderResultCard('Net change (analysis period)', results.net, areaHectares, results.net.perHectare < 0 ? 'stat-value-loss' : '', true),
+  ].filter(Boolean);
+
+  const notes = results.notes.length > 0
+    ? `<ul class="carbon-notes">${results.notes.map(note => `<li>${note}</li>`).join('')}</ul>`
+    : '';
+
+  container.innerHTML = cards.join('') + notes;
 }

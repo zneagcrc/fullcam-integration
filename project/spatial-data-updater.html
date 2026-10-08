@@ -24,7 +24,8 @@
             color: #555;
         }
         input[type="text"],
-        input[type="number"] {
+        input[type="number"],
+        select {
             width: 100%;
             padding: 8px;
             border: 1px solid #ddd;
@@ -75,6 +76,20 @@
             color: #ff9800;
             font-weight: bold;
         }
+        .form-errors {
+            margin-top: 20px;
+            padding: 10px 15px;
+            border: 1px solid #f44336;
+            border-radius: 4px;
+            background: #fdecea;
+        }
+        .form-errors p {
+            margin: 0 0 5px 0;
+        }
+        .form-errors ul {
+            margin: 0;
+            padding-left: 20px;
+        }
         .section-header {
             font-size: 14px;
             font-weight: bold;
@@ -106,23 +121,75 @@
                 </div>
             </div>
 
-            <div class="section-header">Planting Information</div>
-            <div class="form-row">
+            <div class="section-header">Species</div>
+            <div class="form-group">
+                <label for="speciesId">Species</label>
+                <select id="speciesId"></select>
+            </div>
+
+            <div class="section-header">Planting</div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="includePlanting" checked>
+                    <span>Include planting event</span>
+                </label>
+            </div>
+            <div class="form-row" id="plantingFields">
                 <div class="form-group">
                     <label for="plantingName">Planting Name</label>
-                    <input type="text" id="plantingName" value="Example Environmental Planting" required>
-                    <div class="helper-text">Name of the environmental planting</div>
+                    <input type="text" id="plantingName" value="Example Environmental Planting">
+                    <div class="helper-text">Name of the planting</div>
                 </div>
 
                 <div class="form-group">
                     <label for="plantingDate">Planting Date</label>
-                    <input type="number" id="plantingDate" step="1" min="19000101" max="21001231" value="20230701" required>
+                    <input type="number" id="plantingDate" step="1" min="19000101" max="21001231" value="20230701">
                     <div class="helper-text">Date (e.g., 20230701)</div>
                 </div>
             </div>
 
+            <div class="section-header">Clearing</div>
             <div class="form-group">
-                <label for="plantingArea">Planting Area (hectares)</label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="includeClearing">
+                    <span>Include clearing event</span>
+                </label>
+            </div>
+            <div id="clearingFields" style="display: none;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="clearingDate">Clearing Date</label>
+                        <input type="number" id="clearingDate" step="1" min="19000101" max="21001231" value="20230701">
+                        <div class="helper-text">Date (e.g., 20230701)</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="clearingType">Clearing Type</label>
+                        <select id="clearingType">
+                            <option value="thin-clearing">Thin (clearing): to standing dead wood and litter</option>
+                            <option value="no-product-recovery">Initial clearing: no product recovery</option>
+                            <option value="product-recovery">Initial clearing: product recovery</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="clearingPercent">Percent Cleared</label>
+                        <input type="number" id="clearingPercent" step="1" min="1" max="100" value="100">
+                        <div class="helper-text">Percent of the forest cleared (1-100)</div>
+                    </div>
+
+                    <div class="form-group" id="clearingTreeAgeGroup">
+                        <label for="clearingTreeAge">Tree Age at Clearing (years)</label>
+                        <input type="number" id="clearingTreeAge" step="0.1" min="0">
+                        <div class="helper-text" id="clearingTreeAgeHelp"></div>
+                    </div>
+                </div>
+                <div class="helper-text" id="clearingPlantingNote" style="display: none;"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="plantingArea">Area (hectares)</label>
                 <input type="number" id="plantingArea" step="0.01" min="0.01" value="1.0" required>
                 <div class="helper-text">Area in hectares (ha)</div>
             </div>
@@ -164,6 +231,8 @@
                 <div class="helper-text">If checked, will generate and run plantingPlotfileForSimulation.plo</div>
             </div>
 
+            <div id="formErrors" class="form-errors" style="display: none;"></div>
+
             <div style="margin-top: 20px;">
                 <button type="submit" class="btn-primary" id="submitBtn">Submit</button>
             </div>
@@ -188,7 +257,7 @@
 
             <!-- Carbon Sequestration Calculation -->
             <div id="carbonSection" class="response-section" style="display: none;">
-                <h3>Carbon Sequestration Analysis</h3>
+                <h3>Carbon Results</h3>
                 <div id="carbonStatus"></div>
                 <div id="carbonStats" class="carbon-stats"></div>
                 <div id="carbonChart" class="carbon-chart"></div>
@@ -200,30 +269,90 @@
     <script type="module">
         import { 
             updateSpatialData, 
-            calculateCarbonSequestration, 
-            calculateAreaCarbonMetrics 
+            calculateCarbonResults
         } from './src/spatial-data-updater.ts';
         import {
             clearCarbonCharts,
+            renderCarbonResults,
             renderStepSequestrationCharts
         } from './src/carbon-charts.ts';
+        import { SPECIES, clearsPlanting, getSimulationDates, validateActivities } from './src/fullcam-templates/plot-builder.ts';
         import './src/ui-bundle.ts';
+
+        const speciesSelect = document.getElementById('speciesId');
+        const includePlanting = document.getElementById('includePlanting');
+        const includeClearing = document.getElementById('includeClearing');
+
+        for (const [id, species] of Object.entries(SPECIES)) {
+            speciesSelect.add(new Option(`${species.name} (${id})`, id));
+        }
+
+        function updateActivityFields() {
+            const species = SPECIES[speciesSelect.value];
+            includePlanting.disabled = !species.plantingEventName;
+            if (includePlanting.disabled) {
+                includePlanting.checked = false;
+                includeClearing.checked = true;
+            }
+            document.getElementById('plantingFields').style.display = includePlanting.checked ? '' : 'none';
+            document.getElementById('clearingFields').style.display = includeClearing.checked ? '' : 'none';
+
+            // When the planting comes first, the clearing removes it and the planting date sets the tree age
+            const activities = readActivities();
+            const plantingCleared = clearsPlanting(activities);
+            const plantingNote = document.getElementById('clearingPlantingNote');
+            plantingNote.textContent = plantingCleared ? `Clears the planting established on ${activities.planting.date}` : '';
+            plantingNote.style.display = plantingCleared ? '' : 'none';
+            document.getElementById('clearingTreeAgeGroup').style.display = plantingCleared ? 'none' : '';
+
+            document.getElementById('clearingTreeAge').required = includeClearing.checked && !plantingCleared && species.requiresClearingAge;
+            document.getElementById('clearingTreeAgeHelp').textContent = species.requiresClearingAge
+                ? 'Required for this species'
+                : 'Optional - leave blank to assume a mature forest';
+        }
+
+        speciesSelect.addEventListener('change', updateActivityFields);
+        includePlanting.addEventListener('change', updateActivityFields);
+        includeClearing.addEventListener('change', updateActivityFields);
+        document.getElementById('plantingDate').addEventListener('input', updateActivityFields);
+        document.getElementById('clearingDate').addEventListener('input', updateActivityFields);
+        updateActivityFields();
+
+        function readActivities() {
+            const activities = { speciesId: parseInt(speciesSelect.value) };
+            if (includePlanting.checked) {
+                activities.planting = {
+                    date: parseInt(document.getElementById('plantingDate').value),
+                    name: document.getElementById('plantingName').value
+                };
+            }
+            if (includeClearing.checked) {
+                const treeAge = document.getElementById('clearingTreeAge').value;
+                activities.clearing = {
+                    date: parseInt(document.getElementById('clearingDate').value),
+                    type: document.getElementById('clearingType').value,
+                    fractionCleared: parseFloat(document.getElementById('clearingPercent').value) / 100,
+                    treeAgeYears: treeAge === '' ? undefined : parseFloat(treeAge)
+                };
+            }
+            return activities;
+        }
+
+        function showFormErrors(errors) {
+            const formErrors = document.getElementById('formErrors');
+            formErrors.innerHTML = errors.length > 0
+                ? `<p class="error">Please fix the following:</p><ul>${errors.map((err) => `<li>${err}</li>`).join('')}</ul>`
+                : '';
+            formErrors.style.display = errors.length > 0 ? '' : 'none';
+        }
 
         // Form submission
         document.getElementById('spatialForm').addEventListener('submit', async function(e) {
             e.preventDefault();
 
-            const submitBtn = document.getElementById('submitBtn');
-            const originalText = submitBtn.textContent;
-            submitBtn.textContent = 'Submitting...';
-            submitBtn.disabled = true;
-
             const latitude = parseFloat(document.getElementById('latitude').value);
             const longitude = parseFloat(document.getElementById('longitude').value);
-            const simulationStartYear = 2000;
-            const simulationEndYear = 2075;
-            const plantingDate = parseInt(document.getElementById('plantingDate').value);
-            const plantingName = document.getElementById('plantingName').value;
+            const activities = readActivities();
             const plantingArea = parseFloat(document.getElementById('plantingArea').value);
             const runSimulation = document.getElementById('runSimulation').checked;
 
@@ -233,8 +362,26 @@
             const carbonEndYear = parseInt(document.getElementById('carbonEndYear').value);
             const carbonEndMonth = parseInt(document.getElementById('carbonEndMonth').value);
 
+            // Simulation period is derived from the activity dates and carbon analysis period
+            const { simulationStartYear, simulationEndYear } = getSimulationDates(activities, carbonStartYear, carbonEndYear);
+
+            const errors = validateActivities({ simulationStartYear, simulationEndYear }, activities);
+            if (carbonStartYear * 12 + carbonStartMonth >= carbonEndYear * 12 + carbonEndMonth) {
+                errors.push('Carbon analysis end must be after its start');
+            }
+            showFormErrors(errors);
+            if (errors.length > 0) {
+                return;
+            }
+
+            const submitBtn = document.getElementById('submitBtn');
+            const originalText = submitBtn.textContent;
+            submitBtn.textContent = 'Submitting...';
+            submitBtn.disabled = true;
+
             console.log('Submitting spatial data update...');
             console.log('Coordinates:', { latitude, longitude });
+            console.log('Activities:', activities);
             console.log('Planting area:', plantingArea, 'ha');
             console.log('Run simulation:', runSimulation);
             console.log('Carbon analysis period:', { carbonStartYear, carbonStartMonth, carbonEndYear, carbonEndMonth });
@@ -245,8 +392,7 @@
                     longitude, 
                     simulationStartYear, 
                     simulationEndYear, 
-                    plantingDate, 
-                    plantingName, 
+                    activities,
                     '', // Use empty string, will default to environment variable
                     runSimulation
                 );
@@ -293,40 +439,18 @@
                         const startStepInYear = carbonStartMonth;
                         const endStepInYear = carbonEndMonth;
                         
-                        const carbonResult = calculateCarbonSequestration(
-                            result,
-                            carbonStartYear,
-                            startStepInYear,
-                            carbonEndYear,
-                            endStepInYear
-                        );
+                        const carbonResult = calculateCarbonResults(result, activities, {
+                            startYear: carbonStartYear,
+                            startMonth: carbonStartMonth,
+                            endYear: carbonEndYear,
+                            endMonth: carbonEndMonth
+                        });
                         
                         if (carbonResult.success) {
                             carbonSection.classList.remove('error');
-                            carbonStatus.innerHTML = `<p class="success">✓ Carbon sequestration calculated successfully (${carbonStartYear}-${carbonStartMonth} to ${carbonEndYear}-${carbonEndMonth})</p>`;
+                            carbonStatus.innerHTML = `<p class="success">✓ Carbon results calculated (${carbonStartYear}-${carbonStartMonth} to ${carbonEndYear}-${carbonEndMonth})</p>`;
                             
-                            const stepsPerYear = 12;
-                            const startPoint = (carbonStartYear * stepsPerYear) + (startStepInYear - 1);
-                            const endPoint = (carbonEndYear * stepsPerYear) + (endStepInYear - 1);
-                            const years = (endPoint - startPoint) / stepsPerYear;
-                            
-                            // Use the new utility function for cleaner code
-                            const metrics = calculateAreaCarbonMetrics(carbonResult, plantingArea);
-                            
-                            carbonStats.innerHTML = `
-                                <div class="stat-card">
-                                    <div class="stat-label">Total Carbon (per hectare)</div>
-                                    <div class="stat-value">${metrics.totalCarbonPerHectare.toFixed(10)}<span class="stat-unit">tC/ha</span></div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-label">Total Carbon (${plantingArea} ha)</div>
-                                    <div class="stat-value">${metrics.totalCarbonForArea.toFixed(10)}<span class="stat-unit">tC</span></div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-label">Period</div>
-                                    <div class="stat-value">${years.toFixed(2)}<span class="stat-unit">years</span></div>
-                                </div>
-                            `;
+                            renderCarbonResults(carbonStats, carbonResult, plantingArea);
 
                             renderStepSequestrationCharts(
                                 result.data,

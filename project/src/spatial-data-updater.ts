@@ -3,7 +3,7 @@
  * Handles updating spatial data for FullCAM plots via API
  */
 
-import { generateEnviroPlantingTemplate, type SiteCoordinates } from './fullcam-templates/template-enviro-plantings';
+import { generatePlotFile, type PlotActivities, type SiteCoordinates, type SimulationDates } from './fullcam-templates/plot-builder';
 
 // Use environment variable or default to localhost for development
 const API_BASE_URL = import.meta.env.VITE_API_PROXY_URL || 'http://localhost:3001';
@@ -152,7 +152,7 @@ function extractPlotContentCandidate(spatialData: any): string | null {
 /**
  * Generates a .plo file for simulation using spatial update results
  */
-function generateSimulationPlotContent(spatialData: any, originalCoords: SiteCoordinates, dates: any, details: any): string {
+async function generateSimulationPlotContent(spatialData: any, originalCoords: SiteCoordinates, dates: SimulationDates, activities: PlotActivities): Promise<string> {
   const spatialResponsePlotContent = extractPlotContentCandidate(spatialData);
   if (spatialResponsePlotContent) {
     console.log('Using validated spatial update response as simulation plot content');
@@ -166,7 +166,7 @@ function generateSimulationPlotContent(spatialData: any, originalCoords: SiteCoo
   };
   
   // Generate base template and merge with spatial data
-  const baseTemplate = generateEnviroPlantingTemplate(coords, dates, details);
+  const baseTemplate = await generatePlotFile(coords, dates, activities);
   
   const spatialDataShape = spatialData && typeof spatialData === 'object'
     ? `object keys: ${Object.keys(spatialData).join(', ')}`
@@ -296,8 +296,7 @@ async function runPlotSimulation(
  * @param longitude Site longitude
  * @param simulationStartYear Simulation start year (default: 2000)
  * @param simulationEndYear Simulation end year (default: 2075)
- * @param plantingDate Date of environmental planting (YYYYMMDD)
- * @param plantingName Name of the environmental planting
+ * @param activities Species plus planting and/or clearing activities
  * @param subscriptionKey API subscription key (default: VITE_FULLCAM_SUBSCRIPTION_KEY from env)
  * @param runSimulation Whether to run the plot simulation after spatial update (default: false)
  * @returns API response (spatial update or simulation result)
@@ -307,8 +306,7 @@ export async function updateSpatialData(
   longitude: number,
   simulationStartYear: number = 2000,
   simulationEndYear: number = 2075,
-  plantingDate: number,
-  plantingName: string,
+  activities: PlotActivities,
   subscriptionKey: string = SUBSCRIPTION_KEY,
   runSimulation: boolean = false
 ): Promise<SpatialUpdateResponse | SimulationResponse> {
@@ -324,16 +322,12 @@ export async function updateSpatialData(
       simulationStartYear: simulationStartYear,
       simulationEndYear: simulationEndYear
     };
-    
-    const details = {
-      plantingDate: plantingDate,
-      plantingName: plantingName
-    };
 
-    const plotContent = generateEnviroPlantingTemplate(coords, dates, details);
+    const plotContent = await generatePlotFile(coords, dates, activities);
     
     console.log('Generated .plo file for spatial update');
     console.log('Coordinates:', coords);
+    console.log('Activities:', activities);
     console.log('Simulation period:', `${simulationStartYear} - ${simulationEndYear}`);
     
     // 2. Send to API via proxy (required due to CORS restrictions)
@@ -375,11 +369,11 @@ export async function updateSpatialData(
     if (runSimulation && result.success) {
       console.log('Proceeding to run plot simulation...');
       
-      const simulationPlotContent = generateSimulationPlotContent(
+      const simulationPlotContent = await generateSimulationPlotContent(
         result.data,
         coords,
         dates,
-        details
+        activities
       );
       
       return await runPlotSimulation(simulationPlotContent, apiKey);
@@ -656,8 +650,7 @@ export class SpatialDataUpdater {
     coordinates: [number, number],
     simulationStartYear: number = 2000,
     simulationEndYear: number = 2075,
-    plantingDate: number,
-    plantingName: string,
+    activities: PlotActivities,
     spatialData?: any
   ): Promise<SimulationResponse> {
     if (!this.subscriptionKey) {
@@ -680,13 +673,8 @@ export class SpatialDataUpdater {
         simulationEndYear
       };
 
-      const details = {
-        plantingDate,
-        plantingName
-      };
-
       // Generate plot content for simulation
-      const plotContent = generateSimulationPlotContent(spatialData, coords, dates, details);
+      const plotContent = await generateSimulationPlotContent(spatialData, coords, dates, activities);
 
       console.log('Running plot simulation for coordinates:', coordinates);
       console.log('Simulation period:', `${simulationStartYear} - ${simulationEndYear}`);
@@ -709,8 +697,7 @@ export class SpatialDataUpdater {
     lat: number,
     simulationStartYear: number = 2000,
     simulationEndYear: number = 2075,
-    plantingDate: number,
-    plantingName: string
+    activities: PlotActivities
   ): Promise<{ spatialUpdate: SpatialUpdateResponse; simulation?: SimulationResponse }> {
     if (!this.subscriptionKey) {
       return {
@@ -733,8 +720,7 @@ export class SpatialDataUpdater {
       [lng, lat],
       simulationStartYear,
       simulationEndYear,
-      plantingDate,
-      plantingName,
+      activities,
       spatialUpdate.data
     );
 
@@ -893,6 +879,155 @@ export function calculateCarbonSequestration(
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
     };
+  }
+}
+
+export interface CarbonAnalysisPeriod {
+  startYear: number;
+  startMonth: number;
+  endYear: number;
+  endMonth: number;
+}
+
+export interface CarbonPeriodResult {
+  /** First month of the period */
+  fromLabel: string;
+  /** Last month of the period */
+  toLabel: string;
+  /** tC/ha. Sequestered and net: positive is a gain. Released: positive is a loss. */
+  perHectare: number;
+}
+
+export interface CarbonResults {
+  success: boolean;
+  error?: string;
+  planting?: CarbonPeriodResult;
+  clearing?: CarbonPeriodResult;
+  net?: CarbonPeriodResult;
+  notes: string[];
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Month index (year * 12 + month - 1). A simulation output row holds the stock at the end of its month. */
+function monthIndex(year: number, month: number): number {
+  return year * 12 + month - 1;
+}
+
+function monthIndexOfDate(date: number): number {
+  return monthIndex(Math.floor(date / 10000), Math.floor(date / 100) % 100);
+}
+
+function monthLabel(index: number): string {
+  return `${MONTH_NAMES[index % 12]} ${Math.floor(index / 12)}`;
+}
+
+/**
+ * Splits carbon change over the analysis period into planting, clearing and net results.
+ * Carbon stock = trees + forest debris + forest products (wood products are treated as stored).
+ * - Planting: from the planting (or analysis start) to the clearing that removes it (or analysis end)
+ * - Clearing: from the clearing (or analysis start) to the next planting (or analysis end)
+ * - Net: the whole analysis period
+ */
+export function calculateCarbonResults(
+  simulationResponse: SimulationResponse,
+  activities: PlotActivities,
+  analysis: CarbonAnalysisPeriod
+): CarbonResults {
+  const notes: string[] = [];
+  try {
+    if (!simulationResponse.success || typeof simulationResponse.data !== 'string') {
+      return { success: false, error: 'Invalid simulation response or no data available', notes };
+    }
+
+    const lines = simulationResponse.data.split('\n').filter(line => line.trim());
+    const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+    const yearIndex = headers.findIndex(h => h.toLowerCase() === 'year');
+    const stepIndex = headers.findIndex(h => h.toLowerCase().includes('step in year'));
+    const treesIndex = headers.findIndex(h => h.includes('C mass of trees'));
+    const debrisIndex = headers.findIndex(h => h.includes('C mass of forest debris'));
+    const productsIndex = headers.findIndex(h => h.includes('C mass of forest products') && !h.includes('landfill'));
+
+    if (yearIndex === -1 || stepIndex === -1 || treesIndex === -1 || debrisIndex === -1) {
+      return { success: false, error: 'Simulation output is missing the year, step, trees or debris columns', notes };
+    }
+
+    const stock = new Map<number, number>();
+    for (const line of lines.slice(1)) {
+      const values = line.split(',');
+      const value = (index: number) => (index === -1 ? 0 : parseFloat(values[index]) || 0);
+      const year = parseInt(values[yearIndex], 10);
+      const step = parseInt(values[stepIndex], 10);
+      if (!isNaN(year) && !isNaN(step)) {
+        stock.set(monthIndex(year, step), value(treesIndex) + value(debrisIndex) + value(productsIndex));
+      }
+    }
+
+    // Rows are end-of-month stocks, so a period starting in month m is measured from row m - 1
+    const measure = (fromRow: number, toRow: number, sign: 1 | -1): CarbonPeriodResult | undefined => {
+      if (toRow <= fromRow) {
+        return undefined;
+      }
+      const from = stock.get(fromRow);
+      const to = stock.get(toRow);
+      if (from === undefined || to === undefined) {
+        throw new Error(`No simulation output for ${monthLabel(from === undefined ? fromRow : toRow)}`);
+      }
+      return {
+        fromLabel: monthLabel(fromRow + 1),
+        toLabel: monthLabel(toRow),
+        perHectare: sign * (to - from),
+      };
+    };
+
+    const analysisFrom = monthIndex(analysis.startYear, analysis.startMonth) - 1;
+    const analysisTo = monthIndex(analysis.endYear, analysis.endMonth);
+    const { planting, clearing } = activities;
+
+    let plantingResult: CarbonPeriodResult | undefined;
+    if (planting) {
+      const plantingMonth = monthIndexOfDate(planting.date);
+      const clearedLater = clearing && clearing.date > planting.date;
+      const to = clearedLater ? Math.min(monthIndexOfDate(clearing.date) - 1, analysisTo) : analysisTo;
+      plantingResult = measure(Math.max(plantingMonth - 1, analysisFrom), to, 1);
+      if (!plantingResult) {
+        notes.push('The planting has no full month inside the analysis period, so it has no separate result.');
+      }
+    }
+
+    let clearingResult: CarbonPeriodResult | undefined;
+    if (clearing) {
+      const clearingMonth = monthIndexOfDate(clearing.date);
+      const replantedLater = planting && planting.date >= clearing.date;
+      const to = replantedLater ? Math.min(monthIndexOfDate(planting.date) - 1, analysisTo) : analysisTo;
+      clearingResult = measure(Math.max(clearingMonth - 1, analysisFrom), to, -1);
+      if (!clearingResult) {
+        notes.push(
+          replantedLater && monthIndexOfDate(planting.date) === clearingMonth
+            ? 'Clearing and replanting fall in the same month, so the clearing release is included in the planting result.'
+            : 'The clearing has no full month inside the analysis period, so it has no separate result.'
+        );
+      } else if (replantedLater && plantingResult) {
+        notes.push('Debris from the clearing that is still decaying after the replanting is counted in the planting result.');
+      }
+      if (clearing.type === 'product-recovery') {
+        notes.push('Wood products recovered at clearing are counted as stored carbon; their later decay counts as released.');
+      }
+    }
+
+    if (planting || clearing) {
+      notes.push('Planting and clearing results cover only their own periods, so they may not add up to the net change.');
+    }
+
+    return {
+      success: true,
+      planting: plantingResult,
+      clearing: clearingResult,
+      net: measure(analysisFrom, analysisTo, 1),
+      notes,
+    };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error', notes };
   }
 }
 

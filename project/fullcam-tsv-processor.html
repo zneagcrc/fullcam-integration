@@ -125,7 +125,7 @@ Carbon analysis end month	31-Dec-25
 
             <!-- Carbon Sequestration Calculation -->
             <div id="carbonSection" class="response-section" style="display: none;">
-                <h3>Carbon Sequestration Analysis</h3>
+                <h3>Carbon Results</h3>
                 <div id="carbonStatus"></div>
                 <div id="carbonStats" class="carbon-stats"></div>
                 <div id="carbonChart" class="carbon-chart"></div>
@@ -137,13 +137,14 @@ Carbon analysis end month	31-Dec-25
     <script type="module">
         import { 
             updateSpatialData, 
-            calculateCarbonSequestration, 
-            calculateAreaCarbonMetrics 
+            calculateCarbonResults
         } from './src/spatial-data-updater.ts';
         import {
             clearCarbonCharts,
+            renderCarbonResults,
             renderStepSequestrationCharts
         } from './src/carbon-charts.ts';
+        import { getSimulationDates } from './src/fullcam-templates/plot-builder.ts';
         import './src/ui-bundle.ts';
 
         let currentJson = null;
@@ -287,14 +288,16 @@ Carbon analysis end month	31-Dec-25
                 console.log('Planting area:', plantingArea, 'ha');
                 console.log('Carbon period:', { carbonStartYear, carbonStartMonth, carbonEndYear, carbonEndMonth });
 
+                const activities = { speciesId: 7, planting: { date: plantingDateYYYYMMDD, name: plantingName } };
+                const { simulationStartYear, simulationEndYear } = getSimulationDates(activities, carbonStartYear, carbonEndYear);
+
                 // Call updateSpatialData with runSimulation = true
                 const result = await updateSpatialData(
                     latitude, 
                     longitude, 
-                    2000,  // simulationStartYear
-                    2075,  // simulationEndYear
-                    plantingDateYYYYMMDD, 
-                    plantingName, 
+                    simulationStartYear,
+                    simulationEndYear,
+                    activities,
                     '', // Use empty string, will default to environment variable
                     true   // runSimulation
                 );
@@ -344,38 +347,18 @@ Carbon analysis end month	31-Dec-25
                     const startStepInYear = carbonStartMonth;
                     const endStepInYear = carbonEndMonth;
                     
-                    const carbonResult = calculateCarbonSequestration(
-                        result,
-                        carbonStartYear,
-                        startStepInYear,
-                        carbonEndYear,
-                        endStepInYear
-                    );
+                    const carbonResult = calculateCarbonResults(result, activities, {
+                            startYear: carbonStartYear,
+                            startMonth: carbonStartMonth,
+                            endYear: carbonEndYear,
+                            endMonth: carbonEndMonth
+                        });
                     
                     if (carbonResult.success) {
                         carbonSection.classList.remove('error');
-                        carbonStatus.innerHTML = `<p class="success">✓ Carbon sequestration calculated successfully (${carbonStartYear}-${carbonStartMonth} to ${carbonEndYear}-${carbonEndMonth})</p>`;
+                        carbonStatus.innerHTML = `<p class="success">✓ Carbon results calculated (${carbonStartYear}-${carbonStartMonth} to ${carbonEndYear}-${carbonEndMonth})</p>`;
                         
-                        const stepsPerYear = 12;
-                        const startPoint = (carbonStartYear * stepsPerYear) + (startStepInYear - 1);
-                        const endPoint = (carbonEndYear * stepsPerYear) + (endStepInYear - 1);
-                        const years = (endPoint - startPoint) / stepsPerYear;
-                        const metrics = calculateAreaCarbonMetrics(carbonResult, plantingArea);
-                        
-                        carbonStats.innerHTML = `
-                            <div class="stat-card">
-                                <div class="stat-label">Total Carbon (per hectare)</div>
-                                <div class="stat-value">${metrics.totalCarbonPerHectare.toFixed(10)}<span class="stat-unit">tC/ha</span></div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">Total Carbon (${plantingArea} ha)</div>
-                                <div class="stat-value">${metrics.totalCarbonForArea.toFixed(10)}<span class="stat-unit">tC</span></div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">Period</div>
-                                <div class="stat-value">${years.toFixed(2)}<span class="stat-unit">years</span></div>
-                            </div>
-                        `;
+                        renderCarbonResults(carbonStats, carbonResult, plantingArea);
 
                         renderStepSequestrationCharts(
                             result.data,
