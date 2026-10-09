@@ -12,5 +12,4 @@
 ## Project issues
 
 - **The FullCAM subscription key is exposed.** `VITE_FULLCAM_SUBSCRIPTION_KEY` is built into the browser bundle, and both proxies (`project/src/api-proxy.ts`, `lambda/index.ts`) take the key from the request body. Moving it to the proxy/Lambda environment only would keep it private.
-- **The TSV processor always uses Environmental plantings.** `fullcam-tsv-processor.html` has no species field in its TSV format.
-- **The charts don't include wood products.** The result cards count products as stored, but the per-step charts still show trees and debris only.
+- **Chart colours were changed to a colour-blind-safe set.** The old trees/debris green and orange failed a colour-vision check. Trees, debris and wood products now use validated colours (aqua, orange, blue), and the total is a neutral dark line. The per-step bar chart still uses green/red for gain/loss.

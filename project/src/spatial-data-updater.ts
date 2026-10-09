@@ -903,6 +903,8 @@ export interface CarbonResults {
   error?: string;
   planting?: CarbonPeriodResult;
   clearing?: CarbonPeriodResult;
+  /** Carbon in wood products at the end of the clearing window, less any at its start */
+  productsHeld?: CarbonPeriodResult;
   net?: CarbonPeriodResult;
   notes: string[];
 }
@@ -923,6 +925,75 @@ function monthLabel(index: number): string {
 }
 
 /**
+ * Carbon stock (trees + forest debris + forest products, tC/ha) by month index, from simulation
+ * CSV output. Each row is the stock at the end of its month. Null if required columns are missing.
+ */
+export function parseCarbonStock(csv: string): Map<number, number> | null {
+  return parseCarbonPools(csv)?.total ?? null;
+}
+
+/**
+ * Carbon by month index from simulation CSV output (tC/ha): the total stock (trees + debris +
+ * products) and the wood products pool on its own. Null if required columns are missing.
+ */
+function parseCarbonPools(csv: string): { total: Map<number, number>; products: Map<number, number> } | null {
+  const lines = csv.split('\n').filter(line => line.trim());
+  if (lines.length === 0) {
+    return null;
+  }
+  const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
+  const yearIndex = headers.findIndex(h => h.toLowerCase() === 'year');
+  const stepIndex = headers.findIndex(h => h.toLowerCase().includes('step in year'));
+  const treesIndex = headers.findIndex(h => h.includes('C mass of trees'));
+  const debrisIndex = headers.findIndex(h => h.includes('C mass of forest debris'));
+  const productsIndex = headers.findIndex(h => h.includes('C mass of forest products') && !h.includes('landfill'));
+
+  if (yearIndex === -1 || stepIndex === -1 || treesIndex === -1 || debrisIndex === -1) {
+    return null;
+  }
+
+  const total = new Map<number, number>();
+  const products = new Map<number, number>();
+  for (const line of lines.slice(1)) {
+    const values = line.split(',');
+    const value = (index: number) => (index === -1 ? 0 : parseFloat(values[index]) || 0);
+    const year = parseInt(values[yearIndex], 10);
+    const step = parseInt(values[stepIndex], 10);
+    if (!isNaN(year) && !isNaN(step)) {
+      const month = monthIndex(year, step);
+      total.set(month, value(treesIndex) + value(debrisIndex) + value(productsIndex));
+      products.set(month, value(productsIndex));
+    }
+  }
+  return { total, products };
+}
+
+export interface CarbonSeriesPoint {
+  label: string;
+  value: number;
+}
+
+/**
+ * Carbon stock over the analysis period, month by month (tC/ha). The first point is the stock at
+ * the start of the period; each following point is the end of a month. Null if the output doesn't
+ * cover the period.
+ */
+export function carbonStockSeries(stock: Map<number, number>, analysis: CarbonAnalysisPeriod): CarbonSeriesPoint[] | null {
+  const fromRow = monthIndex(analysis.startYear, analysis.startMonth) - 1;
+  const toRow = monthIndex(analysis.endYear, analysis.endMonth);
+
+  const points: CarbonSeriesPoint[] = [];
+  for (let row = fromRow; row <= toRow; row++) {
+    const value = stock.get(row);
+    if (value === undefined) {
+      return null;
+    }
+    points.push({ label: row === fromRow ? `Start of ${monthLabel(row + 1)}` : monthLabel(row), value });
+  }
+  return points;
+}
+
+/**
  * Splits carbon change over the analysis period into planting, clearing and net results.
  * Carbon stock = trees + forest debris + forest products (wood products are treated as stored).
  * - Planting: from the planting (or analysis start) to the clearing that removes it (or analysis end)
@@ -940,36 +1011,18 @@ export function calculateCarbonResults(
       return { success: false, error: 'Invalid simulation response or no data available', notes };
     }
 
-    const lines = simulationResponse.data.split('\n').filter(line => line.trim());
-    const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim());
-    const yearIndex = headers.findIndex(h => h.toLowerCase() === 'year');
-    const stepIndex = headers.findIndex(h => h.toLowerCase().includes('step in year'));
-    const treesIndex = headers.findIndex(h => h.includes('C mass of trees'));
-    const debrisIndex = headers.findIndex(h => h.includes('C mass of forest debris'));
-    const productsIndex = headers.findIndex(h => h.includes('C mass of forest products') && !h.includes('landfill'));
-
-    if (yearIndex === -1 || stepIndex === -1 || treesIndex === -1 || debrisIndex === -1) {
+    const pools = parseCarbonPools(simulationResponse.data);
+    if (!pools) {
       return { success: false, error: 'Simulation output is missing the year, step, trees or debris columns', notes };
     }
 
-    const stock = new Map<number, number>();
-    for (const line of lines.slice(1)) {
-      const values = line.split(',');
-      const value = (index: number) => (index === -1 ? 0 : parseFloat(values[index]) || 0);
-      const year = parseInt(values[yearIndex], 10);
-      const step = parseInt(values[stepIndex], 10);
-      if (!isNaN(year) && !isNaN(step)) {
-        stock.set(monthIndex(year, step), value(treesIndex) + value(debrisIndex) + value(productsIndex));
-      }
-    }
-
     // Rows are end-of-month stocks, so a period starting in month m is measured from row m - 1
-    const measure = (fromRow: number, toRow: number, sign: 1 | -1): CarbonPeriodResult | undefined => {
+    const measure = (fromRow: number, toRow: number, sign: 1 | -1, pool = pools.total): CarbonPeriodResult | undefined => {
       if (toRow <= fromRow) {
         return undefined;
       }
-      const from = stock.get(fromRow);
-      const to = stock.get(toRow);
+      const from = pool.get(fromRow);
+      const to = pool.get(toRow);
       if (from === undefined || to === undefined) {
         throw new Error(`No simulation output for ${monthLabel(from === undefined ? fromRow : toRow)}`);
       }
@@ -996,11 +1049,14 @@ export function calculateCarbonResults(
     }
 
     let clearingResult: CarbonPeriodResult | undefined;
+    let productsResult: CarbonPeriodResult | undefined;
     if (clearing) {
       const clearingMonth = monthIndexOfDate(clearing.date);
       const replantedLater = planting && planting.date >= clearing.date;
       const to = replantedLater ? Math.min(monthIndexOfDate(planting.date) - 1, analysisTo) : analysisTo;
-      clearingResult = measure(Math.max(clearingMonth - 1, analysisFrom), to, -1);
+      const from = Math.max(clearingMonth - 1, analysisFrom);
+      clearingResult = measure(from, to, -1);
+      productsResult = clearingResult && measure(from, to, 1, pools.products);
       if (!clearingResult) {
         notes.push(
           replantedLater && monthIndexOfDate(planting.date) === clearingMonth
@@ -1023,6 +1079,7 @@ export function calculateCarbonResults(
       success: true,
       planting: plantingResult,
       clearing: clearingResult,
+      productsHeld: productsResult,
       net: measure(analysisFrom, analysisTo, 1),
       notes,
     };

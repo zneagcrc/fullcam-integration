@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spatial Data Updater</title>
+    <title>FullCAM Processor</title>
     <style>
         body {
             max-width: 900px;
@@ -81,6 +81,48 @@
             border-bottom: 2px solid #ddd;
             padding-bottom: 8px;
         }
+        .tabs {
+            display: flex;
+            gap: 4px;
+            border-bottom: 2px solid #e0e0e0;
+            margin: 20px 0 5px 0;
+        }
+        .tabs [role="tab"] {
+            margin: 0 0 -2px 0;
+            padding: 10px 18px;
+            background: none;
+            color: #666;
+            border: none;
+            border-bottom: 2px solid transparent;
+            border-radius: 0;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .tabs [role="tab"]:hover {
+            color: #333;
+        }
+        .tabs [role="tab"][aria-selected="true"] {
+            color: #333;
+            border-bottom-color: #4CAF50;
+        }
+        .tabs [role="tab"]:focus-visible {
+            outline: 2px solid #4CAF50;
+            outline-offset: -2px;
+        }
+        textarea {
+            width: 100%;
+            height: 140px;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            white-space: pre;
+            overflow-x: auto;
+            tab-size: 16;
+        }
         .section-header {
             font-size: 14px;
             font-weight: bold;
@@ -138,9 +180,15 @@
 </head>
 <body>
     <div class="container">
-        <h1>Spatial Data Updater</h1>
-        <p>Model plantings and clearings for one reporting period. Each planting, cleared planting and other clearing is run through FullCAM as its own plot, then the results are totalled.</p>
+        <h1>FullCAM Processor</h1>
+        <p>Model plantings and clearings for one reporting period, either by entering them below or by pasting the tables from the reporting-year workbook. Each planting, cleared planting and other clearing is run through FullCAM as its own plot, then the results are totalled.</p>
 
+        <div class="tabs" role="tablist" aria-label="Input method">
+            <button type="button" role="tab" id="tab-form" aria-controls="panel-form" aria-selected="true" tabindex="0">Enter details</button>
+            <button type="button" role="tab" id="tab-paste" aria-controls="panel-paste" aria-selected="false" tabindex="-1">Paste from Excel</button>
+        </div>
+
+        <div role="tabpanel" id="panel-form" aria-labelledby="tab-form">
         <form id="scenarioForm" novalidate>
             <div class="section-header">Reporting Period</div>
             <div class="form-row">
@@ -174,13 +222,45 @@
             <div id="otherClearingsList"></div>
             <button type="button" class="btn-secondary" data-add="otherClearings">+ Add other clearing</button>
 
-            <div id="formErrors" class="form-errors" style="display: none;"></div>
-
-            <div style="margin-top: 20px;">
-                <button type="submit" class="btn-primary" id="submitBtn">Run FullCAM</button>
-                <span id="progress" class="helper-text"></span>
-            </div>
         </form>
+        </div>
+
+        <div role="tabpanel" id="panel-paste" aria-labelledby="tab-paste" hidden>
+            <p class="helper-text">Copy each whole table from the workbook, including its header row, and paste it into its box. Blank rows are ignored.</p>
+
+            <div class="section-header">Reporting Period</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="pastePeriodStart">Start date</label>
+                    <input type="text" id="pastePeriodStart" value="01-January-2025">
+                    <div class="helper-text">e.g. 01-January-2025 or 01/01/2025</div>
+                </div>
+                <div class="form-group">
+                    <label for="pastePeriodEnd">End date</label>
+                    <input type="text" id="pastePeriodEnd" value="31/12/2025">
+                    <div class="helper-text">e.g. 31-December-2025 or 31/12/2025</div>
+                </div>
+            </div>
+
+            <div class="section-header">Planting instances</div>
+            <textarea id="pastePlantings" spellcheck="false" placeholder="Paste the planting instances table here...">Planting name	Date planted	Area planted (hectares)	Latitude	Longitude	Species (select)	Age of trees (years)	Average annual rainfall (mm)	Carbon sequestered (t C)
+Back paddock eucalypt	20-January-2000	100	-33.8688	151.2093	Mallee eucalypt species	24	601	</textarea>
+
+            <div class="section-header">Cleared plantings</div>
+            <textarea id="pasteClearedPlantings" spellcheck="false" placeholder="Paste the cleared plantings table here...">Planting instance (select)	Date cleared	Planting area	Area cleared (hectares)	Percent cleared	Species cleared	Age of trees (years)	Clearing type (select)	Average annual rainfall (mm)	Carbon released (t C)	Carbon held in products (t C)
+Back paddock eucalypt	16-June-2025	100	50	50%	Mallee eucalypt species	24	Thin (clearing): to standing dead wood and litter	601		</textarea>
+
+            <div class="section-header">Other clearing</div>
+            <textarea id="pasteOtherClearings" spellcheck="false" placeholder="Paste the other clearing table here...">Description	Date cleared	Latitude	Longitude	Area of vegetation before clearing	Area cleared (hectares)	Percent cleared	Species cleared (select)	Age of trees (years)	Clearing type (select)	Average annual rainfall (mm)	Carbon released (t C)	Carbon held in products (t C)
+Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	100	Thin (clearing): to standing dead wood and litter	601		</textarea>
+        </div>
+
+        <div id="formErrors" class="form-errors" style="display: none;"></div>
+
+        <div style="margin-top: 20px;">
+            <button type="button" class="btn-primary" id="submitBtn">Process with FullCAM</button>
+            <span id="progress" class="helper-text"></span>
+        </div>
 
         <div id="output" class="output">
             <h2>Results</h2>
@@ -321,6 +401,7 @@
             runScenario
         } from './src/carbon-scenario.ts';
         import { renderScenarioResults, renderScenarioError } from './src/scenario-results.ts';
+        import { parsePastedScenario, formatPastedIssue } from './src/scenario-tsv.ts';
         import './src/ui-bundle.ts';
 
         const CLEARING_TYPE_LABELS = {
@@ -596,14 +677,79 @@
             refresh();
         });
 
-        document.getElementById('scenarioForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        // Tabs: Enter details (form) and Paste from Excel. Each keeps its own inputs and errors.
+        const tabs = [...document.querySelectorAll('[role="tab"]')];
+        let activeTab = 'form';
+        let pasteErrors = [];
 
-            const scenario = readScenario();
-            form.dataset.submitted = 'true';
-            showIssues();
-            const errors = findScenarioIssues(scenario);
-            if (errors.length > 0) {
+        function selectTab(tab) {
+            for (const t of tabs) {
+                const selected = t === tab;
+                t.setAttribute('aria-selected', String(selected));
+                t.tabIndex = selected ? 0 : -1;
+                document.getElementById(t.getAttribute('aria-controls')).hidden = !selected;
+            }
+            activeTab = tab.id === 'tab-paste' ? 'paste' : 'form';
+            // Show the selected tab's errors only
+            if (activeTab === 'paste') {
+                showFormErrors(pasteErrors);
+            } else if (form.dataset.submitted === 'true') {
+                showIssues();
+            } else {
+                showFormErrors([]);
+            }
+        }
+
+        tabs.forEach((tab, i) => {
+            tab.addEventListener('click', () => selectTab(tab));
+            tab.addEventListener('keydown', (e) => {
+                const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+                if (next === undefined) return;
+                e.preventDefault();
+                const target = tabs[(next + tabs.length) % tabs.length];
+                target.focus();
+                selectTab(target);
+            });
+        });
+
+        // The scenario from the selected tab, or null (with its errors shown) if it can't be run
+        function readActiveScenario() {
+            if (activeTab === 'form') {
+                const scenario = readScenario();
+                form.dataset.submitted = 'true';
+                showIssues();
+                return findScenarioIssues(scenario).length > 0 ? null : scenario;
+            }
+
+            const parsed = parsePastedScenario({
+                periodStart: document.getElementById('pastePeriodStart').value,
+                periodEnd: document.getElementById('pastePeriodEnd').value,
+                plantings: document.getElementById('pastePlantings').value,
+                clearedPlantings: document.getElementById('pasteClearedPlantings').value,
+                otherClearings: document.getElementById('pasteOtherClearings').value
+            });
+            // Problems reading the paste come first; the scenario checks run once it reads cleanly
+            pasteErrors = parsed.errors.length > 0
+                ? parsed.errors
+                : findScenarioIssues(parsed.scenario).map(issue => formatPastedIssue(issue, parsed.rows));
+            showFormErrors(pasteErrors);
+            return pasteErrors.length > 0 ? null : parsed.scenario;
+        }
+
+        // Enter in a form field runs it too
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            process();
+        });
+        document.getElementById('submitBtn').addEventListener('click', () => process());
+
+        async function process() {
+            // Already running (e.g. Enter pressed in a form field mid-run)
+            if (document.getElementById('submitBtn').disabled) {
+                return;
+            }
+            const scenario = readActiveScenario();
+            if (!scenario) {
                 return;
             }
 
@@ -627,7 +773,7 @@
                 progress.textContent = '';
                 submitBtn.disabled = false;
             }
-        });
+        }
 
         // Example scenario
         addRow('plantings', {

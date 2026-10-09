@@ -4,6 +4,8 @@ Web app (Vite + TypeScript, in `project/`) that builds FullCAM plot files for a 
 
 - Plot generation: `project/src/fullcam-templates/plot-builder.ts` (species registry, events, validation) on top of the base plot in `template-plot.ts`.
 - API calls and carbon results: `project/src/spatial-data-updater.ts`.
+- Scenarios (plantings, cleared plantings, other clearing -> one FullCAM plot per row, totalled): `project/src/carbon-scenario.ts`; results display shared by both pages: `project/src/scenario-results.ts`.
+- Pages: `project/fullcam-processor.html` combines both input methods as tabs ("Enter details", the default, and "Paste from Excel"). The older single-method pages remain for now: `project/spatial-data-updater.html` (scenario entered as lists) and `project/fullcam-tsv-processor.html` (the reporting-year workbook's tables pasted in, read by `project/src/scenario-tsv.ts`).
 - Proxies: `project/src/api-proxy.ts` (local) and `lambda/index.ts` (deployed).
 - Reference material: `docs/` (FullCAM API PDFs, example `.plo` files, requirements docx).
 

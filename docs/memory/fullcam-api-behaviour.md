@@ -10,6 +10,7 @@ Verified against the live FullCAM 2024 APIs (October 2026). The DCCEEW docs in `
   |---|---|---|
   | 7 | Environmental plantings | |
   | 23 | Mallee eucalypt species | |
+  | 31 | Native species and revegetation <500mm rainfall | MVG; no planting event |
   | 32 | Native species and revegetation >=500mm rainfall | MVG; used by `docs/ExampleDeforestation.plo`; no planting event |
   | 33 | Native Species Regeneration <500mm rainfall | |
   | 34 | Native Species Regeneration >=500mm rainfall | |

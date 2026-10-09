@@ -11,9 +11,12 @@ import { generatePlotTemplate, type SiteCoordinates, type SimulationDates } from
 
 export type { SiteCoordinates, SimulationDates };
 
-export type SpeciesId = 7 | 23 | 32 | 33 | 34;
+export type SpeciesId = 7 | 23 | 31 | 32 | 33 | 34;
 
 export type ClearingType = 'thin-clearing' | 'no-product-recovery' | 'product-recovery';
+
+/** Tree age used for a mature forest; ages outside 1-9999 are treated as mature */
+export const MATURE_TREE_AGE = 9999;
 
 interface SpeciesConfig {
   name: string;
@@ -21,8 +24,6 @@ interface SpeciesConfig {
   plantingEventName: string | null;
   /** TYF growth curve used to derive initial biomass from tree age when clearing */
   clearingGrowthCurve: string;
-  /** Whether clearing requires a tree age (species default age isn't meaningful) */
-  requiresClearingAge: boolean;
   /** Plot-level initial debris (InitDebrF attribute -> tC/ha); unset pools are zero */
   initDebris: Record<string, number>;
 }
@@ -32,35 +33,36 @@ export const SPECIES: Record<SpeciesId, SpeciesConfig> = {
     name: 'Environmental plantings',
     plantingEventName: 'Establish environmental plantings - block geometry',
     clearingGrowthCurve: 'BlockES',
-    requiresClearingAge: true,
     initDebris: {},
   },
   23: {
     name: 'Mallee eucalypt species',
     plantingEventName: 'Establish mallee eucalypt species - block geometry',
     clearingGrowthCurve: 'BlockES',
-    requiresClearingAge: true,
+    initDebris: {},
+  },
+  31: {
+    name: 'Native species and revegetation <500mm rainfall',
+    plantingEventName: null,
+    clearingGrowthCurve: 'BlockLMG',
     initDebris: {},
   },
   32: {
     name: 'Native species and revegetation >=500mm rainfall',
     plantingEventName: null,
     clearingGrowthCurve: 'BlockLMG',
-    requiresClearingAge: false,
     initDebris: {},
   },
   33: {
     name: 'Native Species Regeneration <500mm rainfall',
     plantingEventName: 'Plant trees: natural regeneration in regeneration systems',
     clearingGrowthCurve: 'BlockLMG',
-    requiresClearingAge: false,
     initDebris: {},
   },
   34: {
     name: 'Native Species Regeneration >=500mm rainfall',
     plantingEventName: 'Plant trees: natural regeneration in regeneration systems',
     clearingGrowthCurve: 'BlockLMG',
-    requiresClearingAge: false,
     initDebris: {},
   },
 };
@@ -84,8 +86,9 @@ export interface ClearingActivity {
   /** Fraction of the forest cleared, 0-1 */
   fractionCleared: number;
   /**
-   * Age of the trees at the clearing date; defaults to the species' default age where allowed.
-   * Ignored when the clearing follows a planting, since the planting date sets the age.
+   * Age of the trees at the clearing date. Anything that isn't a number from 1 to 9999
+   * (including undefined) means a mature forest. Ignored when the clearing follows a planting,
+   * since the planting date sets the age.
    */
   treeAgeYears?: number;
   name?: string;
@@ -210,12 +213,14 @@ export function getSimulationDates(activities: PlotActivities, analysisStartYear
   };
 }
 
-/** Age of the cleared forest at the simulation start, or null to use the species' default age */
-function clearingAgeAtStart(dates: SimulationDates, clearing: ClearingActivity): number | null {
-  if (clearing.treeAgeYears === undefined) {
-    return null;
-  }
-  return clearing.treeAgeYears - (toDecimalYear(clearing.date) - dates.simulationStartYear);
+/** Tree age at clearing: anything that isn't a number from 1 to 9999 means a mature forest */
+export function normaliseTreeAge(age: unknown): number {
+  return typeof age === 'number' && age >= 1 && age <= MATURE_TREE_AGE ? age : MATURE_TREE_AGE;
+}
+
+/** Age of the cleared forest at the simulation start */
+function clearingAgeAtStart(dates: SimulationDates, clearing: ClearingActivity): number {
+  return normaliseTreeAge(clearing.treeAgeYears) - (toDecimalYear(clearing.date) - dates.simulationStartYear);
 }
 
 /**
@@ -271,18 +276,12 @@ export function validateActivities(dates: SimulationDates, activities: PlotActiv
       errors.push('Percent cleared must be greater than 0 and at most 100');
     }
 
-    if (clearsPlanting(activities)) {
-      // Tree age comes from the planting date
-    } else if (clearing.treeAgeYears === undefined) {
-      if (config.requiresClearingAge) {
-        errors.push(`Tree age at clearing is required for ${config.name}`);
-      }
-    } else if (!(clearing.treeAgeYears >= 1)) {
-      errors.push('Tree age at clearing must be at least 1 year');
-    } else if (dateValid && clearingAgeAtStart(dates, clearing)! < 0) {
-      const establishedYear = Math.ceil(toDecimalYear(clearing.date) - clearing.treeAgeYears);
+    // When the clearing follows a planting, the planting date sets the tree age
+    if (dateValid && !clearsPlanting(activities) && clearingAgeAtStart(dates, clearing) < 0) {
+      const treeAge = normaliseTreeAge(clearing.treeAgeYears);
+      const establishedYear = Math.ceil(toDecimalYear(clearing.date) - treeAge);
       errors.push(
-        `Trees aged ${clearing.treeAgeYears} years at clearing were established around ${establishedYear}, so they didn't exist at the start of ${simulationStartYear}. Start the carbon analysis in ${establishedYear} or later, or increase the tree age.`
+        `Trees aged ${treeAge} years at clearing were established around ${establishedYear}, so they didn't exist at the start of ${simulationStartYear}. Start the carbon analysis in ${establishedYear} or later, or increase the tree age.`
       );
     }
   }
@@ -303,8 +302,7 @@ function buildInitTreeF(speciesBlock: string, config: SpeciesConfig, dates: Simu
   let initTreeF = setAttr(forestInit[1], 'treeExistsInit', clearing ? 'true' : 'false');
 
   if (clearing) {
-    const ageAtStart = clearingAgeAtStart(dates, clearing) ?? parseFloat(getAttr(initTreeF, 'avgTreeAgeInit') ?? '');
-    const age = ageAtStart.toFixed(2);
+    const age = clearingAgeAtStart(dates, clearing).toFixed(2);
     initTreeF = setAttr(initTreeF, 'maxTreeAgeInit', age);
     initTreeF = setAttr(initTreeF, 'avgTreeAgeInit', age);
     initTreeF = setAttr(initTreeF, 'tInitStem', 'FracAge');

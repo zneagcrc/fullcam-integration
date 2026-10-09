@@ -52,3 +52,72 @@
     transition: opacity 80ms linear;
     pointer-events: none;
 }
+
+.carbon-chart-expandable {
+    position: relative;
+}
+
+.carbon-chart-expandable > .carbon-chart-title {
+    padding-right: 90px;
+}
+
+.carbon-chart-expand {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    margin: 0;
+    padding: 4px 8px;
+    font-size: 12px;
+    background: #fff;
+    color: #555;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.carbon-chart-expand:hover,
+.carbon-chart-expand:focus-visible {
+    border-color: #4CAF50;
+    color: #333;
+}
+
+.chart-modal {
+    width: min(1400px, 95vw);
+    max-height: 92vh;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.chart-modal::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.chart-modal-inner {
+    padding: 12px 20px 20px;
+}
+
+.chart-modal-header {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.chart-modal-close {
+    margin: 0;
+    padding: 6px 14px;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+/* Scale the chart to the modal's width, keeping its proportions */
+.carbon-chart-large svg {
+    height: auto;
+}
+
+.carbon-chart-large {
+    margin-top: 0;
+}

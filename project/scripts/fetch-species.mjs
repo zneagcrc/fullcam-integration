@@ -8,7 +8,7 @@
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const SPECIES_IDS = [7, 23, 32, 33, 34];
+const SPECIES_IDS = [7, 23, 31, 32, 33, 34];
 const BASE_URL = 'https://api.climatechange.gov.au/climate/carbon-accounting/2024/data/v1/2024/data-builder/species';
 const OUT_DIR = fileURLToPath(new URL('../src/fullcam-templates/species/', import.meta.url));
 

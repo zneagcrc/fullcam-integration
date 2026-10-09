@@ -16,13 +16,24 @@
         }
         textarea {
             width: 100%;
-            height: 250px;
+            height: 140px;
             font-family: monospace;
+            font-size: 12px;
             padding: 10px;
-            margin-bottom: 10px;
             box-sizing: border-box;
             border: 1px solid #ddd;
             border-radius: 4px;
+            white-space: pre;
+            overflow-x: auto;
+            tab-size: 16;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 14px;
         }
         button {
             background-color: #4CAF50;
@@ -36,28 +47,23 @@
             background-color: #ccc;
             cursor: not-allowed;
         }
-        button.secondary {
-            background-color: #007bff;
-        }
-        button.secondary:hover {
-            background-color: #0056b3;
-        }
-        .container {
-            display: flex;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        .column {
-            flex: 1;
-        }
         h2 {
             margin-top: 0;
             color: #666;
             border-bottom: 1px solid #e0e0e0;
             padding-bottom: 8px;
         }
-        .buttons {
-            margin-bottom: 10px;
+        .section-header {
+            font-size: 14px;
+            font-weight: bold;
+            color: #666;
+            margin: 20px 0 8px 0;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            max-width: 600px;
         }
         .form-group {
             margin-bottom: 10px;
@@ -69,337 +75,120 @@
             color: #555;
             font-size: 14px;
         }
-        input[type="text"] {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
+        .form-errors {
+            margin-top: 20px;
+            padding: 10px 15px;
+            border: 1px solid #f44336;
             border-radius: 4px;
-            box-sizing: border-box;
-            font-size: 14px;
+            background: #fdecea;
+        }
+        .form-errors p {
+            margin: 0 0 5px 0;
+        }
+        .form-errors ul {
+            margin: 0;
+            padding-left: 20px;
         }
     </style>
 </head>
 <body>
     <div class="main-container">
         <h1>FullCAM Planting Data Processor</h1>
-        <p>Convert TSV data to JSON, then process through FullCAM spatial data and simulation workflow.</p>
-        
-        <div class="container">
-            <div class="column">
-                <h2>Input (TSV)</h2>
-                <textarea id="input" placeholder="Paste your TSV data here...">Event Name	My cool thing			
-Latitude of planting center point	-37.30742414
-Longitude of planting center point	144.5516579
-Planting date	1-Jan-20
-Planting name	My cool thing
-Area in hectares	100
-	
-Carbon analysis start month	1-Jan-24
-Carbon analysis end month	31-Dec-25
-</textarea>
-                <div class="buttons">
-                    <button onclick="processFullCAM()" id="processBtn">Process with FullCAM</button>
-                </div>
+        <p>Paste the reporting period and the three tables from the reporting-year workbook. Copy each whole table including its header row; blank rows are ignored. Each planting, cleared planting and other clearing is run through FullCAM as its own plot, then the results are totalled.</p>
+
+        <div class="section-header">Reporting Period</div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="periodStart">Start date</label>
+                <input type="text" id="periodStart" value="01-January-2025">
+                <div class="helper-text">e.g. 01-January-2025 or 01/01/2025</div>
+            </div>
+            <div class="form-group">
+                <label for="periodEnd">End date</label>
+                <input type="text" id="periodEnd" value="31/12/2025">
+                <div class="helper-text">e.g. 31-December-2025 or 31/12/2025</div>
             </div>
         </div>
 
-        <div class="section-divider"></div>
+        <div class="section-header">Planting instances</div>
+        <textarea id="plantingsInput" spellcheck="false" placeholder="Paste the planting instances table here...">Planting name	Date planted	Area planted (hectares)	Latitude	Longitude	Species (select)	Age of trees (years)	Average annual rainfall (mm)	Carbon sequestered (t C)
+Back paddock eucalypt	20-January-2000	100	-33.8688	151.2093	Mallee eucalypt species	24	601	</textarea>
+
+        <div class="section-header">Cleared plantings</div>
+        <textarea id="clearedPlantingsInput" spellcheck="false" placeholder="Paste the cleared plantings table here...">Planting instance (select)	Date cleared	Planting area	Area cleared (hectares)	Percent cleared	Species cleared	Age of trees (years)	Clearing type (select)	Average annual rainfall (mm)	Carbon released (t C)	Carbon held in products (t C)
+Back paddock eucalypt	16-June-2025	100	50	50%	Mallee eucalypt species	24	Thin (clearing): to standing dead wood and litter	601		</textarea>
+
+        <div class="section-header">Other clearing</div>
+        <textarea id="otherClearingsInput" spellcheck="false" placeholder="Paste the other clearing table here...">Description	Date cleared	Latitude	Longitude	Area of vegetation before clearing	Area cleared (hectares)	Percent cleared	Species cleared (select)	Age of trees (years)	Clearing type (select)	Average annual rainfall (mm)	Carbon released (t C)	Carbon held in products (t C)
+Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	100	Thin (clearing): to standing dead wood and litter	601		</textarea>
+
+        <div id="formErrors" class="form-errors" style="display: none;"></div>
+
+        <div style="margin-top: 20px;">
+            <button type="button" id="processBtn">Process with FullCAM</button>
+            <span id="progress" class="helper-text"></span>
+        </div>
 
         <div id="fullcamOutput" class="output">
             <h2>FullCAM Processing Results</h2>
-
-            
-            <!-- Spatial Update Response -->
-            <div id="spatialSection" class="response-section">
-                <h3>Spatial Data Update</h3>
-                <div id="spatialStatus"></div>
-                <pre id="spatialData"></pre>
-            </div>
-
-            <!-- Simulation Response -->
-            <div id="simulationSection" class="response-section" style="display: none;">
-                <h3>Plot Simulation</h3>
-                <div id="simulationStatus"></div>
-                <pre id="simulationData"></pre>
-            </div>
-
-            <!-- Carbon Sequestration Calculation -->
-            <div id="carbonSection" class="response-section" style="display: none;">
-                <h3>Carbon Results</h3>
-                <div id="carbonStatus"></div>
-                <div id="carbonStats" class="carbon-stats"></div>
-                <div id="carbonChart" class="carbon-chart"></div>
-                <div id="carbonTotalChart" class="carbon-chart"></div>
-            </div>
+            <div id="resultsSection" class="response-section"></div>
         </div>
     </div>
 
     <script type="module">
-        import { 
-            updateSpatialData, 
-            calculateCarbonResults
-        } from './src/spatial-data-updater.ts';
-        import {
-            clearCarbonCharts,
-            renderCarbonResults,
-            renderStepSequestrationCharts
-        } from './src/carbon-charts.ts';
-        import { getSimulationDates } from './src/fullcam-templates/plot-builder.ts';
+        import { parsePastedScenario, formatPastedIssue } from './src/scenario-tsv.ts';
+        import { findScenarioIssues, runScenario } from './src/carbon-scenario.ts';
+        import { renderScenarioResults, renderScenarioError } from './src/scenario-results.ts';
         import './src/ui-bundle.ts';
 
-        let currentJson = null;
+        const escapeHtml = (text) => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-        function convertTsvToJson(tsvData) {
-            // Remove blank lines and split into lines
-            const lines = tsvData
-                .split('\n')
-                .filter(line => line.trim() !== '')
-                .map(line => line.split('\t'));
-            
-            const result = {};
-            
-            // Parse main event properties (first section)
-            let i = 0;
-            while (i < lines.length && lines[i][0] && lines[i][0] !== 'Wildfire event name') {
-                const key = lines[i][0];
-                const value = lines[i][1];
-                if (key && value) {
-                    result[key] = value;
-                }
-                i++;
-            }
-            
-            // Parse wildfire events table
-            if (i < lines.length && lines[i][0] === 'Wildfire event name') {
-                const headers = lines[i];
-                i++;
-                result['Wildfire events'] = [];
-                
-                while (i < lines.length && lines[i][0] && lines[i][0] !== 'Prescribed burning event name') {
-                    const event = {};
-                    headers.forEach((header, index) => {
-                        if (header && lines[i][index]) {
-                            event[header] = lines[i][index];
-                        }
-                    });
-                    if (Object.keys(event).length > 0) {
-                        result['Wildfire events'].push(event);
-                    }
-                    i++;
-                }
-            }
-            
-            // Parse prescribed burning events table
-            if (i < lines.length && lines[i][0] === 'Prescribed burning event name') {
-                const headers = lines[i];
-                i++;
-                result['Prescribed burning events'] = [];
-                
-                while (i < lines.length && lines[i][0] && lines[i][0] !== 'Simulation start date') {
-                    const event = {};
-                    headers.forEach((header, index) => {
-                        if (header && lines[i][index]) {
-                            event[header] = lines[i][index];
-                        }
-                    });
-                    if (Object.keys(event).length > 0) {
-                        result['Prescribed burning events'].push(event);
-                    }
-                    i++;
-                }
-            }
-            
-            // Parse remaining properties (simulation dates)
-            while (i < lines.length) {
-                const key = lines[i][0];
-                const value = lines[i][1];
-                if (key && value) {
-                    result[key] = value;
-                }
-                i++;
-            }
-            
-            return result;
+        function showFormErrors(errors) {
+            const formErrors = document.getElementById('formErrors');
+            formErrors.innerHTML = errors.length > 0
+                ? `<p class="error">Please fix the following:</p><ul>${errors.map(err => `<li>${escapeHtml(err)}</li>`).join('')}</ul>`
+                : '';
+            formErrors.style.display = errors.length > 0 ? '' : 'none';
         }
 
-        // Parse date string like "1-Jan-20" or "31-Dec-25"
-        function parseDate(dateStr) {
-            const months = {
-                'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
-                'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
-            };
-            
-            const parts = dateStr.split('-');
-            const day = parseInt(parts[0]);
-            const month = months[parts[1]];
-            const year = parseInt(parts[2]);
-            
-            // Convert 2-digit year to 4-digit
-            const fullYear = year < 50 ? 2000 + year : 1900 + year;
-            
-            return new Date(fullYear, month, day);
-        }
+        document.getElementById('processBtn').addEventListener('click', async () => {
+            const parsed = parsePastedScenario({
+                periodStart: document.getElementById('periodStart').value,
+                periodEnd: document.getElementById('periodEnd').value,
+                plantings: document.getElementById('plantingsInput').value,
+                clearedPlantings: document.getElementById('clearedPlantingsInput').value,
+                otherClearings: document.getElementById('otherClearingsInput').value
+            });
 
-        // Convert date to YYYYMMDD format
-        function dateToYYYYMMDD(date) {
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            return parseInt(`${year}${month}${day}`);
-        }
-
-        window.processFullCAM = async function() {
-            const input = document.getElementById('input').value;
-            
-            try {
-                currentJson = convertTsvToJson(input);
-            } catch (error) {
-                alert(`Failed to parse TSV input: ${error.message}`);
+            // Problems reading the paste come first; the scenario checks run once it reads cleanly
+            const errors = parsed.errors.length > 0
+                ? parsed.errors
+                : findScenarioIssues(parsed.scenario).map(issue => formatPastedIssue(issue, parsed.rows));
+            showFormErrors(errors);
+            if (errors.length > 0) {
                 return;
             }
 
             const processBtn = document.getElementById('processBtn');
-            const originalText = processBtn.textContent;
-            processBtn.textContent = 'Processing...';
+            const progress = document.getElementById('progress');
+            const output = document.getElementById('fullcamOutput');
+            const section = document.getElementById('resultsSection');
             processBtn.disabled = true;
 
             try {
-                // Extract data from JSON
-                const latitude = parseFloat(currentJson['Latitude of planting center point']);
-                const longitude = parseFloat(currentJson['Longitude of planting center point']);
-                const plantingName = currentJson['Planting name'];
-                const plantingArea = parseFloat(currentJson['Area in hectares']);
-
-                // Parse dates
-                const plantingDate = parseDate(currentJson['Planting date']);
-                const plantingDateYYYYMMDD = dateToYYYYMMDD(plantingDate);
-                
-                const carbonStartDate = parseDate(currentJson['Carbon analysis start month']);
-                const carbonEndDate = parseDate(currentJson['Carbon analysis end month']);
-                
-                const carbonStartYear = carbonStartDate.getFullYear();
-                const carbonStartMonth = carbonStartDate.getMonth() + 1;
-                const carbonEndYear = carbonEndDate.getFullYear();
-                const carbonEndMonth = carbonEndDate.getMonth() + 1;
-
-                console.log('Processing with FullCAM...');
-                console.log('Coordinates:', { latitude, longitude });
-                console.log('Planting date:', plantingDateYYYYMMDD);
-                console.log('Planting area:', plantingArea, 'ha');
-                console.log('Carbon period:', { carbonStartYear, carbonStartMonth, carbonEndYear, carbonEndMonth });
-
-                const activities = { speciesId: 7, planting: { date: plantingDateYYYYMMDD, name: plantingName } };
-                const { simulationStartYear, simulationEndYear } = getSimulationDates(activities, carbonStartYear, carbonEndYear);
-
-                // Call updateSpatialData with runSimulation = true
-                const result = await updateSpatialData(
-                    latitude, 
-                    longitude, 
-                    simulationStartYear,
-                    simulationEndYear,
-                    activities,
-                    '', // Use empty string, will default to environment variable
-                    true   // runSimulation
-                );
-
-                // Show output section
-                document.getElementById('fullcamOutput').classList.add('visible');
-
-                // Display simulation response
-                const simulationSection = document.getElementById('simulationSection');
-                const simulationStatus = document.getElementById('simulationStatus');
-                const simulationData = document.getElementById('simulationData');
-                
-                simulationSection.style.display = 'block';
-                
-                if (result.success) {
-                    simulationSection.classList.remove('error');
-                    simulationStatus.innerHTML = '<p class="success">✓ Plot simulation completed successfully</p>';
-                } else {
-                    simulationSection.classList.add('error');
-                    simulationStatus.innerHTML = `<p class="error">✗ Simulation failed: ${result.error || 'Unknown error'}</p>`;
-                }
-
-                if (result.data) {
-                    simulationData.textContent = typeof result.data === 'string' 
-                        ? result.data 
-                        : JSON.stringify(result.data, null, 2);
-                } else {
-                    simulationData.textContent = JSON.stringify(result, null, 2);
-                }
-
-                // Update spatial section
-                const spatialSection = document.getElementById('spatialSection');
-                const spatialStatus = document.getElementById('spatialStatus');
-                const spatialData = document.getElementById('spatialData');
-                
-                spatialStatus.innerHTML = '<p class="success">✓ Spatial update completed (proceeding to simulation)</p>';
-                spatialData.textContent = 'Spatial data updated successfully. See simulation results below.';
-
-                // Calculate carbon sequestration
-                if (result.success && result.data) {
-                    const carbonSection = document.getElementById('carbonSection');
-                    const carbonStatus = document.getElementById('carbonStatus');
-                    const carbonStats = document.getElementById('carbonStats');
-                    
-                    carbonSection.style.display = 'block';
-                    
-                    const startStepInYear = carbonStartMonth;
-                    const endStepInYear = carbonEndMonth;
-                    
-                    const carbonResult = calculateCarbonResults(result, activities, {
-                            startYear: carbonStartYear,
-                            startMonth: carbonStartMonth,
-                            endYear: carbonEndYear,
-                            endMonth: carbonEndMonth
-                        });
-                    
-                    if (carbonResult.success) {
-                        carbonSection.classList.remove('error');
-                        carbonStatus.innerHTML = `<p class="success">✓ Carbon results calculated (${carbonStartYear}-${carbonStartMonth} to ${carbonEndYear}-${carbonEndMonth})</p>`;
-                        
-                        renderCarbonResults(carbonStats, carbonResult, plantingArea);
-
-                        renderStepSequestrationCharts(
-                            result.data,
-                            {
-                                startYear: carbonStartYear,
-                                startStepInYear,
-                                endYear: carbonEndYear,
-                                endStepInYear
-                            },
-                            'carbonChart',
-                            'carbonTotalChart'
-                        );
-                    } else {
-                        carbonSection.classList.add('error');
-                        carbonStatus.innerHTML = `<p class="error">✗ Carbon calculation failed: ${carbonResult.error}</p>`;
-                        carbonStats.innerHTML = '';
-                        clearCarbonCharts('carbonChart', 'carbonTotalChart');
-                    }
-                } else {
-                    document.getElementById('carbonSection').style.display = 'none';
-                }
-
+                const result = await runScenario(parsed.scenario, (done, total, job) => {
+                    progress.textContent = done < total ? `Running plot ${done + 1} of ${total}: ${job.label}` : '';
+                });
+                output.classList.add('visible');
+                renderScenarioResults(section, result, parsed.scenario.reportingPeriod);
             } catch (error) {
-                document.getElementById('fullcamOutput').classList.add('visible');
-                
-                const spatialSection = document.getElementById('spatialSection');
-                const spatialStatus = document.getElementById('spatialStatus');
-                const spatialData = document.getElementById('spatialData');
-                
-                spatialSection.classList.add('error');
-                spatialStatus.innerHTML = `<p class="error">✗ Error: ${error.message}</p>`;
-                spatialData.textContent = error.stack || error.message;
-                
-                document.getElementById('simulationSection').style.display = 'none';
-                document.getElementById('carbonSection').style.display = 'none';
+                output.classList.add('visible');
+                renderScenarioError(section, error.message);
             } finally {
-                processBtn.textContent = originalText;
+                progress.textContent = '';
                 processBtn.disabled = false;
             }
-        }
-
+        });
     </script>
 </body>
 </html>
