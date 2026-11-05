@@ -15,7 +15,7 @@ export type SpeciesId = 7 | 23 | 31 | 32 | 33 | 34;
 
 export type ClearingType = 'thin-clearing' | 'no-product-recovery' | 'product-recovery';
 
-/** Tree age used for a mature forest; ages outside 1-9999 are treated as mature */
+/** Tree age used for a mature forest; ages that aren't over 0 and up to 9999 are treated as mature */
 export const MATURE_TREE_AGE = 9999;
 
 interface SpeciesConfig {
@@ -24,8 +24,6 @@ interface SpeciesConfig {
   plantingEventName: string | null;
   /** TYF growth curve used to derive initial biomass from tree age when clearing */
   clearingGrowthCurve: string;
-  /** Plot-level initial debris (InitDebrF attribute -> tC/ha); unset pools are zero */
-  initDebris: Record<string, number>;
 }
 
 export const SPECIES: Record<SpeciesId, SpeciesConfig> = {
@@ -33,43 +31,41 @@ export const SPECIES: Record<SpeciesId, SpeciesConfig> = {
     name: 'Environmental plantings',
     plantingEventName: 'Establish environmental plantings - block geometry',
     clearingGrowthCurve: 'BlockES',
-    initDebris: {},
   },
   23: {
     name: 'Mallee eucalypt species',
     plantingEventName: 'Establish mallee eucalypt species - block geometry',
     clearingGrowthCurve: 'BlockES',
-    initDebris: {},
   },
   31: {
     name: 'Native species and revegetation <500mm rainfall',
     plantingEventName: null,
     clearingGrowthCurve: 'BlockLMG',
-    initDebris: {},
   },
   32: {
     name: 'Native species and revegetation >=500mm rainfall',
     plantingEventName: null,
     clearingGrowthCurve: 'BlockLMG',
-    initDebris: {},
   },
   33: {
     name: 'Native Species Regeneration <500mm rainfall',
     plantingEventName: 'Plant trees: natural regeneration in regeneration systems',
     clearingGrowthCurve: 'BlockLMG',
-    initDebris: {},
   },
   34: {
     name: 'Native Species Regeneration >=500mm rainfall',
     plantingEventName: 'Plant trees: natural regeneration in regeneration systems',
     clearingGrowthCurve: 'BlockLMG',
-    initDebris: {},
   },
 };
 
+/** The FullCAM team's recommended default for clearing on a farm */
+export const DEFAULT_CLEARING_TYPE: ClearingType = 'no-product-recovery';
+
+// Listed default first, so dropdowns built from it pre-select the default
 export const CLEARING_EVENT_NAMES: Record<ClearingType, string> = {
-  'thin-clearing': 'Thin (clearing)',
   'no-product-recovery': 'Initial clearing: no product recovery',
+  'thin-clearing': 'Thin (clearing)',
   'product-recovery': 'Initial clearing: product recovery',
 };
 
@@ -86,11 +82,37 @@ export interface ClearingActivity {
   /** Fraction of the forest cleared, 0-1 */
   fractionCleared: number;
   /**
-   * Age of the trees at the clearing date. Anything that isn't a number from 1 to 9999
-   * (including undefined) means a mature forest. Ignored when the clearing follows a planting,
+   * Age of the trees at the clearing date, in decimal years. Anything that isn't a number over 0
+   * and up to 9999 (including undefined) means a mature forest. Ignored when the clearing follows a planting,
    * since the planting date sets the age.
    */
   treeAgeYears?: number;
+  name?: string;
+}
+
+/**
+ * wildfire / prescribed-burn: a fire in a standing planting (VEERG chapter Table 16.9).
+ * debris-burn: burning the cleared debris after a clearing ("Site prep: Windrow and burn").
+ */
+export type FireKind = 'wildfire' | 'prescribed-burn' | 'debris-burn';
+
+export interface FireActivity {
+  /** YYYYMMDD */
+  date: number;
+  kind: FireKind;
+  /** Fraction of the plot's area burnt, 0-1 */
+  fractionAffected: number;
+  /** Wildfires only: percent of trees killed in the burnt area, 0-100 */
+  percentTreesKilled?: number;
+  name?: string;
+}
+
+/** A growth pause (e.g. grazing disturbance) in a planting: chapter Table 16.10 */
+export interface GrowthPauseActivity {
+  /** YYYYMMDD */
+  date: number;
+  /** Length of the pause in decimal years, e.g. 3.75 for 3 years 9 months */
+  years: number;
   name?: string;
 }
 
@@ -98,7 +120,49 @@ export interface PlotActivities {
   speciesId: SpeciesId;
   planting?: PlantingActivity;
   clearing?: ClearingActivity;
+  fires?: FireActivity[];
+  growthPauses?: GrowthPauseActivity[];
 }
+
+/**
+ * A forest treatment event with "Type 1: Age advance" on, as the chapter models a growth pause:
+ * age advance = -pause length, advancement period = pause length. There's no standard event for it
+ * in the species libraries, so the XML follows one made in the FullCAM web app
+ * (docs/Environmental Plantings Method - From FullCAM template.plo).
+ */
+function growthPauseEvent(pause: GrowthPauseActivity): string {
+  const years = String(pause.years);
+  return `<Event tEV="TmtF" clearEV="false" onEV="true" dateOriginEV="Calendar" nYrsFromStEV="" nDaysFromStEV="" tFaqEV="" tAaqEV="" aqStYrEV="" aqEnYrEV="" nmEV="Growth pause" categoryEV="" tEvent="Doc" idSP="" regimeInstance="${crypto.randomUUID()}" nmRegime="${escapeXmlAttr(pause.name || 'Growth pause')}">
+      <notesEV/>
+      <TmtF ageAdvTmtF="-${years}" advPeriodTmtF="${years}" yieldMultTmtF="" type1On="true" type2On="false" fixTmtF="" phaTmtF=""/>
+      <dateEV CalendarSystemT="FixedLength">${pause.date}</dateEV>
+    </Event>`;
+}
+
+/**
+ * The species library's standard event for a fire. Native Species Regeneration has wildfire events
+ * for bands of trees killed (0-60% in 10% steps, then 70-100%); the other species only have
+ * "trees killed" and "trees not killed", chosen by the chapter's 5% threshold.
+ */
+function fireEventName(speciesId: SpeciesId, fire: FireActivity): string {
+  if (fire.kind === 'debris-burn') {
+    return 'Site prep: Windrow and burn';
+  }
+  if (fire.kind === 'prescribed-burn') {
+    return 'Prescribed burn';
+  }
+  const killed = fire.percentTreesKilled ?? 0;
+  if (speciesId === 33 || speciesId === 34) {
+    const band = killed >= 65 ? '70-100' : String(Math.round(killed / 10) * 10);
+    return `Wildfire - ${band}% trees killed - ${speciesId === 33 ? 'NSR<500mm' : 'NSR>=500mm'}`;
+  }
+  return killed <= 5 ? 'Wildfire - trees not killed' : 'Wildfire - trees killed';
+}
+
+/** The chapter (Table 16.9) sets every "maximum years to regrow post-fire" to 20 for wildfires and controlled burns */
+const FIRE_REGROW_YEARS: Record<string, string> = Object.fromEntries(
+  ['Stem', 'Bran', 'Bark', 'Leaf', 'Cort', 'Firt'].map(part => [`yrs${part}RegrowFirF`, '20'])
+);
 
 const DEFAULT_INIT_DEBR_F = '<InitDebrF dDdwdCMInitF="0.0" rDdwdCMInitF="0.0" dChwdCMInitF="0.0" rChwdCMInitF="0.0" dBlitCMInitF="0.0" rBlitCMInitF="0.0" dLlitCMInitF="0.0" rLlitCMInitF="0.0" dCodrCMInitF="0.0" rCodrCMInitF="0.0" dFidrCMInitF="0.0" rFidrCMInitF="0.0" dDdwdNCRatioInitF="" dChwdNCRatioInitF="" dBlitNCRatioInitF="" dLlitNCRatioInitF="" dCodrNCRatioInitF="" dFidrNCRatioInitF="" />';
 
@@ -198,24 +262,33 @@ function toDecimalYear(date: number): number {
   return year + (month - 1) / 12 + (day - 1) / 365;
 }
 
+/** The VEERG chapter (Appendix A2.6) spreads a clearing's emissions over the 20 years after it */
+export const CLEARING_ALLOCATION_YEARS = 20;
+
 /**
  * Simulation period derived from the activities and carbon analysis period.
  * Starts in January of the earliest activity or analysis start year (no earlier than needed, so a
- * forest being cleared already exists at the start) and ends in January after the analysis end year.
+ * forest being cleared already exists at the start). Ends in January after the analysis end year, or,
+ * for a clearing, after the 20 years following it (Appendix A2.6 needs the stock 20 years on).
+ * FullCAM simulates forward in time, so running longer doesn't change the analysis period's values.
  */
 export function getSimulationDates(activities: PlotActivities, analysisStartYear: number, analysisEndYear: number): SimulationDates {
   const activityYears = [activities.planting?.date, activities.clearing?.date]
     .filter((date): date is number => date !== undefined)
     .map((date) => Math.floor(date / 10000));
+  const clearingYear = activities.clearing ? Math.floor(activities.clearing.date / 10000) : undefined;
   return {
     simulationStartYear: Math.min(analysisStartYear, ...activityYears),
-    simulationEndYear: analysisEndYear + 1,
+    simulationEndYear: Math.max(
+      analysisEndYear + 1,
+      clearingYear === undefined ? 0 : clearingYear + CLEARING_ALLOCATION_YEARS + 1
+    ),
   };
 }
 
-/** Tree age at clearing: anything that isn't a number from 1 to 9999 means a mature forest */
+/** Tree age at clearing: anything that isn't a number over 0 and up to 9999 means a mature forest */
 export function normaliseTreeAge(age: unknown): number {
-  return typeof age === 'number' && age >= 1 && age <= MATURE_TREE_AGE ? age : MATURE_TREE_AGE;
+  return typeof age === 'number' && age > 0 && age <= MATURE_TREE_AGE ? age : MATURE_TREE_AGE;
 }
 
 /** Age of the cleared forest at the simulation start */
@@ -251,7 +324,7 @@ export function validateActivities(dates: SimulationDates, activities: PlotActiv
     }
     const decimalYear = toDecimalYear(date);
     if (decimalYear < simulationStartYear || decimalYear >= simulationEndYear) {
-      errors.push(`${label} must be between ${simulationStartYear}0101 and ${simulationEndYear - 1}1231 (no later than the end of the carbon analysis period)`);
+      errors.push(`${label} must be between ${simulationStartYear}0101 and ${simulationEndYear - 1}1231 (the simulation period)`);
       return false;
     }
     return true;
@@ -286,6 +359,42 @@ export function validateActivities(dates: SimulationDates, activities: PlotActiv
     }
   }
 
+  for (const fire of activities.fires ?? []) {
+    const label = fire.kind === 'debris-burn' ? 'Debris burn date' : fire.kind === 'wildfire' ? 'Wildfire date' : 'Planned burn date';
+    if (!checkDate(label, fire.date)) {
+      continue;
+    }
+    if (!(fire.fractionAffected > 0 && fire.fractionAffected <= 1)) {
+      errors.push(`${label}: the share of the area burnt must be greater than 0% and at most 100%`);
+    }
+    if (fire.kind === 'wildfire' && !(fire.percentTreesKilled! >= 0 && fire.percentTreesKilled! <= 100)) {
+      errors.push('Wildfire: percent of trees killed must be from 0% to 100%');
+    }
+    if (fire.kind === 'debris-burn') {
+      if (!activities.clearing) {
+        errors.push('A debris burn needs a clearing');
+      } else if (fire.date < activities.clearing.date) {
+        errors.push('The debris burn date must not be before the clearing date');
+      }
+    } else if (activities.planting && fire.date < activities.planting.date) {
+      errors.push(`${label} must not be before the planting date`);
+    }
+  }
+
+  for (const pause of activities.growthPauses ?? []) {
+    if (!checkDate('Growth pause date', pause.date)) {
+      continue;
+    }
+    if (!(pause.years > 0)) {
+      errors.push('Growth pause length must be more than 0 years');
+    }
+    if (!activities.planting) {
+      errors.push('A growth pause needs a planting');
+    } else if (pause.date < activities.planting.date) {
+      errors.push('Growth pause date must not be before the planting date');
+    }
+  }
+
   return errors;
 }
 
@@ -312,11 +421,20 @@ function buildInitTreeF(speciesBlock: string, config: SpeciesConfig, dates: Simu
   return initTreeF;
 }
 
-function buildInitDebrF(config: SpeciesConfig): string {
-  return Object.entries(config.initDebris).reduce(
-    (tag, [name, value]) => setAttr(tag, name, String(value)),
-    DEFAULT_INIT_DEBR_F
-  );
+/**
+ * Plot-level InitDebrF. A plot that starts with an existing forest (to be cleared) uses the species'
+ * default starting debris, as the FullCAM team advised; a plot that starts as bare ground (plantings,
+ * and plantings later cleared) starts with no debris, per the VEERG chapter's "No initial trees or debris".
+ */
+function buildInitDebrF(speciesBlock: string, existingForest: boolean): string {
+  if (!existingForest) {
+    return DEFAULT_INIT_DEBR_F;
+  }
+  const speciesDefault = speciesBlock.match(/<ForestInit>[\s\S]*?(<InitDebrF [^>]*>)[\s\S]*?<\/ForestInit>/);
+  if (!speciesDefault) {
+    throw new Error('Species block has no ForestInit/InitDebrF');
+  }
+  return speciesDefault[1];
 }
 
 /**
@@ -332,14 +450,14 @@ export async function generatePlotFile(coords: SiteCoordinates, dates: Simulatio
   const speciesBlock = await loadSpeciesBlock(activities.speciesId);
   const treeName = getAttr(speciesBlock.slice(0, speciesBlock.indexOf('>') + 1), 'nmSP') ?? '';
 
-  // order breaks same-day ties: clearing (0) runs before planting (1)
+  // order breaks same-day ties: clearing (0), then debris burn (1), planting (2), other fires (3), growth pauses (4)
   const events: { date: number; order: number; xml: string }[] = [];
 
   if (activities.planting) {
     const { date, name } = activities.planting;
     events.push({
       date,
-      order: 1,
+      order: 2,
       xml: toPlotEvent(findLibraryEvent(speciesBlock, config.plantingEventName!), date, name || 'Planting', {
         treeNmPlnF: treeName,
       }),
@@ -358,6 +476,25 @@ export async function generatePlotFile(coords: SiteCoordinates, dates: Simulatio
     });
   }
 
+  for (const fire of activities.fires ?? []) {
+    const overrides: Record<string, string> = { fracAfctFirF: String(fire.fractionAffected) };
+    events.push({
+      date: fire.date,
+      order: fire.kind === 'debris-burn' ? 1 : 3,
+      xml: toPlotEvent(
+        findLibraryEvent(speciesBlock, fireEventName(activities.speciesId, fire)),
+        fire.date,
+        fire.name || 'Fire',
+        // Debris burns use the standard event's defaults (chapter Table 16.9: "Use defaults")
+        fire.kind === 'debris-burn' ? overrides : { ...overrides, ...FIRE_REGROW_YEARS }
+      ),
+    });
+  }
+
+  for (const pause of activities.growthPauses ?? []) {
+    events.push({ date: pause.date, order: 4, xml: growthPauseEvent(pause) });
+  }
+
   events.sort((a, b) => a.date - b.date || a.order - b.order);
 
   const existingForestClearing = clearsPlanting(activities) ? undefined : activities.clearing;
@@ -365,7 +502,7 @@ export async function generatePlotFile(coords: SiteCoordinates, dates: Simulatio
   return generatePlotTemplate(coords, dates, {
     speciesForestSet: `<SpeciesForestSet count="1" showOnlyInUse="false">\n${speciesBlock}\n    </SpeciesForestSet>`,
     initTreeF: buildInitTreeF(speciesBlock, config, dates, existingForestClearing),
-    initDebrF: buildInitDebrF(config),
+    initDebrF: buildInitDebrF(speciesBlock, existingForestClearing !== undefined),
     eventQ: generateEventQ(events.map((e) => e.xml)),
   });
 }

@@ -1,7 +1,7 @@
 /**
  * Scenario TSV
  * Reads tables copied from the reporting-year Excel workbook (tab-separated, header row included)
- * into a carbon scenario: plantings, cleared plantings and other clearing.
+ * into a carbon scenario: plantings, cleared plantings, other clearing, wildfire events and planned burns.
  */
 
 import {
@@ -10,19 +10,25 @@ import {
   type CarbonScenario,
   type ClearedPlanting,
   type ClearingSpecies,
+  type GrowthPause,
   type OtherClearing,
+  type PlannedBurn,
   type PlantingInstance,
   type PlantingSpecies,
   type ScenarioIssue,
+  type WildfireEvent,
 } from './carbon-scenario';
-import type { ClearingType } from './fullcam-templates/plot-builder';
+import { DEFAULT_CLEARING_TYPE, type ClearingType } from './fullcam-templates/plot-builder';
 
-type TableName = 'plantings' | 'clearedPlantings' | 'otherClearings';
+type TableName = 'plantings' | 'clearedPlantings' | 'otherClearings' | 'wildfires' | 'plannedBurns' | 'growthPauses';
 
 const TABLE_LABELS: Record<TableName, string> = {
   plantings: 'Plantings',
   clearedPlantings: 'Cleared plantings',
   otherClearings: 'Other clearing',
+  wildfires: 'Wildfire events',
+  plannedBurns: 'Planned burns',
+  growthPauses: 'Growth pauses',
 };
 
 /** Where a parsed row came from, for error messages */
@@ -84,6 +90,11 @@ function parseNumber(text: string): number | undefined {
   return value === '' ? undefined : Number(value);
 }
 
+/** "50%" or "50" -> 50; blank -> undefined; anything else -> NaN */
+function parsePercent(text: string): number | undefined {
+  return parseNumber(text.replace(/%\s*$/, ''));
+}
+
 const normalise = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim();
 
 function matchSpecies(text: string, plantableOnly: boolean): ClearingSpecies | null {
@@ -103,11 +114,18 @@ function matchClearingType(text: string): ClearingType | null {
   return found ? found[0] : null;
 }
 
+const DEBRIS_BURN_HEADERS = ['Post-clearing debris burn date', 'Debris burn date'];
+
 interface ColumnSpec {
   key: string;
-  header: string;
+  /** The column's heading; a list accepts any of them (e.g. a renamed heading and its old name) */
+  header: string | string[];
   required: boolean;
 }
+
+const headerNames = (column: ColumnSpec) => (Array.isArray(column.header) ? column.header : [column.header]);
+const columnIndex = (headers: string[], column: ColumnSpec) =>
+  headerNames(column).map(name => headers.indexOf(normalise(name))).find(index => index !== -1) ?? -1;
 
 /**
  * Splits pasted text into rows of cells, finds the header row (within the first few lines, in case
@@ -122,15 +140,15 @@ function readTable(text: string, table: TableName, columns: ColumnSpec[], errors
   const required = columns.filter(c => c.required);
   const headerIndex = lines.slice(0, 5).findIndex(cells => {
     const headers = cells.map(normalise);
-    return required.every(c => headers.includes(normalise(c.header)));
+    return required.every(c => columnIndex(headers, c) !== -1);
   });
   if (headerIndex === -1) {
-    errors.push(`${TABLE_LABELS[table]}: couldn't find the header row. Copy the whole table including its headers (needs: ${required.map(c => c.header).join(', ')})`);
+    errors.push(`${TABLE_LABELS[table]}: couldn't find the header row. Copy the whole table including its headers (needs: ${required.map(c => headerNames(c)[0]).join(', ')})`);
     return [];
   }
 
   const headers = lines[headerIndex].map(normalise);
-  const positions = Object.fromEntries(columns.map(c => [c.key, headers.indexOf(normalise(c.header))]));
+  const positions = Object.fromEntries(columns.map(c => [c.key, columnIndex(headers, c)]));
 
   return lines.slice(headerIndex + 1).map((cells, i) => ({
     tableRow: i + 1,
@@ -139,7 +157,7 @@ function readTable(text: string, table: TableName, columns: ColumnSpec[], errors
 }
 
 /**
- * Reads the three pasted tables and the reporting period start and end cells into a scenario.
+ * Reads the pasted tables and the reporting period start and end cells into a scenario.
  * Rows without a name, planting or description (blank template rows) are skipped.
  */
 export function parsePastedScenario(input: {
@@ -148,9 +166,14 @@ export function parsePastedScenario(input: {
   plantings: string;
   clearedPlantings: string;
   otherClearings: string;
+  wildfires?: string;
+  plannedBurns?: string;
+  growthPauses?: string;
 }): PastedScenario {
   const errors: string[] = [];
-  const rows: PastedScenario['rows'] = { plantings: [], clearedPlantings: [], otherClearings: [] };
+  const rows: PastedScenario['rows'] = {
+    plantings: [], clearedPlantings: [], otherClearings: [], wildfires: [], plannedBurns: [], growthPauses: [],
+  };
 
   const start = parseSheetDate(input.periodStart);
   const end = parseSheetDate(input.periodEnd);
@@ -170,6 +193,8 @@ export function parsePastedScenario(input: {
     }
     return date ?? NaN;
   };
+  // An optional date (e.g. debris burn): blank means none
+  const readOptionalDate = (where: string, label: string, text: string) => (text ? readDate(where, label, text) : undefined);
   const readSpecies = (where: string, text: string, plantableOnly: boolean) => {
     const species = matchSpecies(text, plantableOnly);
     if (text && !species) {
@@ -178,6 +203,10 @@ export function parsePastedScenario(input: {
     return species ?? ('' as ClearingSpecies);
   };
   const readClearingType = (where: string, text: string) => {
+    // A blank clearing type uses the default (no product recovery)
+    if (!text) {
+      return DEFAULT_CLEARING_TYPE;
+    }
     const type = matchClearingType(text);
     if (text && !type) {
       errors.push(`${where}: clearing type "${text}" isn't recognised`);
@@ -190,7 +219,7 @@ export function parsePastedScenario(input: {
   for (const { tableRow, cells } of readTable(input.plantings, 'plantings', [
     { key: 'name', header: 'Planting name', required: true },
     { key: 'datePlanted', header: 'Date planted', required: true },
-    { key: 'areaHa', header: 'Area planted (hectares)', required: true },
+    { key: 'areaHa', header: ['Area originally planted (hectares)', 'Area planted (hectares)'], required: true },
     { key: 'latitude', header: 'Latitude', required: true },
     { key: 'longitude', header: 'Longitude', required: true },
     { key: 'species', header: 'Species (select)', required: true },
@@ -216,6 +245,7 @@ export function parsePastedScenario(input: {
     { key: 'dateCleared', header: 'Date cleared', required: true },
     { key: 'areaClearedHa', header: 'Area cleared (hectares)', required: true },
     { key: 'clearingType', header: 'Clearing type (select)', required: true },
+    { key: 'debrisBurnDate', header: DEBRIS_BURN_HEADERS, required: false },
   ], errors)) {
     if (!cells.plantingName) continue;
     const at = where('clearedPlantings', tableRow, cells.plantingName);
@@ -225,6 +255,7 @@ export function parsePastedScenario(input: {
       dateCleared: readDate(at, 'date cleared', cells.dateCleared),
       areaClearedHa: parseNumber(cells.areaClearedHa) as number,
       clearingType: readClearingType(at, cells.clearingType),
+      debrisBurnDate: readOptionalDate(at, 'debris burn date', cells.debrisBurnDate),
     });
   }
 
@@ -238,6 +269,7 @@ export function parsePastedScenario(input: {
     { key: 'species', header: 'Species cleared (select)', required: true },
     { key: 'treeAgeYears', header: 'Age of trees (years)', required: false },
     { key: 'clearingType', header: 'Clearing type (select)', required: true },
+    { key: 'debrisBurnDate', header: DEBRIS_BURN_HEADERS, required: false },
     { key: 'rainfallMm', header: 'Average annual rainfall (mm)', required: false },
   ], errors)) {
     if (!cells.description) continue;
@@ -250,10 +282,61 @@ export function parsePastedScenario(input: {
       longitude: parseNumber(cells.longitude) as number,
       areaClearedHa: parseNumber(cells.areaClearedHa) as number,
       species: readSpecies(at, cells.species, false),
-      // Anything that isn't a number from 1 to 9999 means mature
+      // Anything that isn't a number over 0 and up to 9999 means mature
       treeAgeYears: parseNumber(cells.treeAgeYears),
       clearingType: readClearingType(at, cells.clearingType),
+      debrisBurnDate: readOptionalDate(at, 'debris burn date', cells.debrisBurnDate),
       rainfallMm: parseNumber(cells.rainfallMm),
+    });
+  }
+
+  const wildfires: WildfireEvent[] = [];
+  for (const { tableRow, cells } of readTable(input.wildfires ?? '', 'wildfires', [
+    { key: 'plantingName', header: 'Planting instance (select)', required: true },
+    { key: 'date', header: 'Event date', required: true },
+    { key: 'percentBurnt', header: ['Percent of planting burned', 'Percent of planting burnt'], required: true },
+    { key: 'percentTreesKilled', header: 'Percent of trees killed', required: true },
+  ], errors)) {
+    if (!cells.plantingName) continue;
+    const at = where('wildfires', tableRow, cells.plantingName);
+    rows.wildfires.push({ tableRow, name: cells.plantingName });
+    wildfires.push({
+      plantingName: cells.plantingName,
+      date: readDate(at, 'event date', cells.date),
+      percentBurnt: parsePercent(cells.percentBurnt) as number,
+      percentTreesKilled: parsePercent(cells.percentTreesKilled) as number,
+    });
+  }
+
+  const plannedBurns: PlannedBurn[] = [];
+  for (const { tableRow, cells } of readTable(input.plannedBurns ?? '', 'plannedBurns', [
+    { key: 'plantingName', header: 'Planting instance (select)', required: true },
+    { key: 'date', header: 'Event date', required: true },
+    { key: 'percentAffected', header: 'Percent of planting affected', required: true },
+  ], errors)) {
+    if (!cells.plantingName) continue;
+    const at = where('plannedBurns', tableRow, cells.plantingName);
+    rows.plannedBurns.push({ tableRow, name: cells.plantingName });
+    plannedBurns.push({
+      plantingName: cells.plantingName,
+      date: readDate(at, 'event date', cells.date),
+      percentAffected: parsePercent(cells.percentAffected) as number,
+    });
+  }
+
+  const growthPauses: GrowthPause[] = [];
+  for (const { tableRow, cells } of readTable(input.growthPauses ?? '', 'growthPauses', [
+    { key: 'plantingName', header: 'Planting instance (select)', required: true },
+    { key: 'date', header: 'Event date', required: true },
+    { key: 'pauseYears', header: 'Pause length (years)', required: true },
+  ], errors)) {
+    if (!cells.plantingName) continue;
+    const at = where('growthPauses', tableRow, cells.plantingName);
+    rows.growthPauses.push({ tableRow, name: cells.plantingName });
+    growthPauses.push({
+      plantingName: cells.plantingName,
+      date: readDate(at, 'event date', cells.date),
+      pauseYears: parseNumber(cells.pauseYears) as number,
     });
   }
 
@@ -267,6 +350,9 @@ export function parsePastedScenario(input: {
       plantings,
       clearedPlantings,
       otherClearings,
+      wildfires,
+      plannedBurns,
+      growthPauses,
     },
     rows,
     errors,

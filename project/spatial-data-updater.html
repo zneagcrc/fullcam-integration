@@ -401,7 +401,7 @@
                     } else if (input.type === 'number') {
                         values[field] = toNumber(input.value);
                     } else if (field === 'treeAgeYears') {
-                        // Anything that isn't a number from 1 to 9999 is treated as mature by the builder
+                        // Anything that isn't a number over 0 and up to 9999 is treated as mature by the builder
                         values[field] = toNumber(input.value);
                     } else {
                         values[field] = input.value;

@@ -195,15 +195,15 @@
                 <div class="form-group">
                     <label>Start (year, month)</label>
                     <div class="form-row">
-                        <input type="number" id="periodStartYear" step="1" value="2024">
-                        <input type="number" id="periodStartMonth" step="1" min="1" max="12" value="7">
+                        <input type="number" id="periodStartYear" step="1" value="2025">
+                        <input type="number" id="periodStartMonth" step="1" min="1" max="12" value="1">
                     </div>
                 </div>
                 <div class="form-group">
                     <label>End (year, month)</label>
                     <div class="form-row">
                         <input type="number" id="periodEndYear" step="1" value="2025">
-                        <input type="number" id="periodEndMonth" step="1" min="1" max="12" value="6">
+                        <input type="number" id="periodEndMonth" step="1" min="1" max="12" value="12">
                     </div>
                 </div>
             </div>
@@ -214,13 +214,27 @@
             <button type="button" class="btn-secondary" data-add="plantings">+ Add planting</button>
 
             <div class="section-header">Cleared Plantings</div>
+            <p class="helper-text">Include clearings from the reporting period and the 20 years before it. Use one row per planting per year of clearing. If a planting was cleared several times in the same year, enter the total area cleared that year and the date when most of the clearing happened.</p>
             <div id="clearedPlantingsList"></div>
             <button type="button" class="btn-secondary" data-add="clearedPlantings">+ Add cleared planting</button>
             <span class="helper-text" id="clearedPlantingsNote"></span>
 
             <div class="section-header">Other Clearing</div>
+            <p class="helper-text">If the age of trees is unknown, leave it blank and the trees will be treated as mature. If entering the age of trees, keep evidence of the age of the trees cleared.</p>
             <div id="otherClearingsList"></div>
             <button type="button" class="btn-secondary" data-add="otherClearings">+ Add other clearing</button>
+
+            <div class="section-header">Planting Management Events</div>
+            <p class="helper-text">When an event happens after part of a planting was cleared, it applies to the area still standing.</p>
+            <div class="instance-title">Wildfire events</div>
+            <div id="wildfiresList"></div>
+            <button type="button" class="btn-secondary" data-add="wildfires">+ Add wildfire</button>
+            <div class="instance-title" style="margin-top: 15px;">Planned burns</div>
+            <div id="plannedBurnsList"></div>
+            <button type="button" class="btn-secondary" data-add="plannedBurns">+ Add planned burn</button>
+            <div class="instance-title" style="margin-top: 15px;">Growth pauses</div>
+            <div id="growthPausesList"></div>
+            <button type="button" class="btn-secondary" data-add="growthPauses">+ Add growth pause</button>
 
         </form>
         </div>
@@ -243,16 +257,29 @@
             </div>
 
             <div class="section-header">Planting instances</div>
-            <textarea id="pastePlantings" spellcheck="false" placeholder="Paste the planting instances table here...">Planting name	Date planted	Area planted (hectares)	Latitude	Longitude	Species (select)	Age of trees (years)	Average annual rainfall (mm)	Carbon sequestered (t C)
-Back paddock eucalypt	20-January-2000	100	-33.8688	151.2093	Mallee eucalypt species	24	601	</textarea>
+            <textarea id="pastePlantings" spellcheck="false" placeholder="Paste the planting instances table here...">Planting name	Date planted	Area originally planted (hectares)	Latitude	Longitude	Species (select)	Age of trees (years)	Average annual rainfall (mm)	Carbon sequestered (t C)
+Back paddock eucalypt	20-January-2000	100	-33.8688	151.2093	Mallee eucalypt species	25	599	</textarea>
 
             <div class="section-header">Cleared plantings</div>
-            <textarea id="pasteClearedPlantings" spellcheck="false" placeholder="Paste the cleared plantings table here...">Planting instance (select)	Date cleared	Planting area	Area cleared (hectares)	Percent cleared	Species cleared	Age of trees (years)	Clearing type (select)	Average annual rainfall (mm)	Carbon released (t C)	Carbon held in products (t C)
-Back paddock eucalypt	16-June-2025	100	50	50%	Mallee eucalypt species	24	Thin (clearing): to standing dead wood and litter	601		</textarea>
+            <textarea id="pasteClearedPlantings" spellcheck="false" placeholder="Paste the cleared plantings table here...">Planting instance (select)	Date cleared	Planting area	Area cleared (hectares)	Percent cleared	Species cleared	Age of trees (years)	Clearing type (select)	Post-clearing debris burn date	Average annual rainfall (mm)	Carbon released (t C)	Carbon held in products (t C)
+Back paddock eucalypt	01-January-2023	100	30	30%	Mallee eucalypt species	22.95	Initial clearing: no product recovery	01-January-2023	599		
+Back paddock eucalypt	16-June-2025	100	20	20%	Mallee eucalypt species	25.4	Initial clearing: no product recovery		599		</textarea>
 
             <div class="section-header">Other clearing</div>
-            <textarea id="pasteOtherClearings" spellcheck="false" placeholder="Paste the other clearing table here...">Description	Date cleared	Latitude	Longitude	Area of vegetation before clearing	Area cleared (hectares)	Percent cleared	Species cleared (select)	Age of trees (years)	Clearing type (select)	Average annual rainfall (mm)	Carbon released (t C)	Carbon held in products (t C)
-Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	100	Thin (clearing): to standing dead wood and litter	601		</textarea>
+            <textarea id="pasteOtherClearings" spellcheck="false" placeholder="Paste the other clearing table here...">Description	Date cleared	Latitude	Longitude	Area of vegetation before clearing	Area cleared (hectares)	Percent cleared	Species cleared (select)	Age of trees (years)	Clearing type (select)	Post-clearing debris burn date	Average annual rainfall (mm)	Carbon released (t C)	Carbon held in products (t C)
+Ridge mallee	16-June-2023	-33.8688	151.2093	100	50	50%	Mallee eucalypt species		Initial clearing: no product recovery		599		</textarea>
+
+            <div class="section-header">Wildfire events</div>
+            <textarea id="pasteWildfires" spellcheck="false" placeholder="Paste the wildfire events table here...">Planting instance (select)	Event date	Species affected	Percent of planting burned	Percent of trees killed
+Back paddock eucalypt	16-September-2025	Mallee eucalypt species	50%	50%</textarea>
+
+            <div class="section-header">Planned burns</div>
+            <textarea id="pastePlannedBurns" spellcheck="false" placeholder="Paste the planned burns table here...">Planting instance (select)	Event date	Species affected	Percent of planting affected
+Back paddock eucalypt	01-April-2025	Mallee eucalypt species	50%</textarea>
+
+            <div class="section-header">Growth pauses</div>
+            <textarea id="pasteGrowthPauses" spellcheck="false" placeholder="Paste the growth pauses table here...">Planting instance (select)	Event date	Species affected	Pause length (years)
+Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
         </div>
 
         <div id="formErrors" class="form-errors" style="display: none;"></div>
@@ -284,9 +311,9 @@ Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	1
             </div>
             <div class="form-row-3">
                 <div class="form-group">
-                    <label>Area standing (ha)</label>
+                    <label>Area originally planted (ha)</label>
                     <input type="number" step="0.01" min="0" data-field="areaHa">
-                    <div class="helper-text">At the start of the reporting period</div>
+                    <div class="helper-text">Clearings below are subtracted automatically</div>
                 </div>
                 <div class="form-group">
                     <label>Latitude</label>
@@ -333,6 +360,13 @@ Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	1
                 <div class="form-group">
                     <label>Clearing type</label>
                     <select data-field="clearingType" data-clearing-types></select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Post-clearing debris burn date</label>
+                    <input type="date" data-field="debrisBurnDate" data-optional>
+                    <div class="helper-text">When the debris was burnt, or is planned to be within 3 years of clearing. Leave blank if no burn.</div>
                 </div>
             </div>
             <div class="derived" data-derived></div>
@@ -389,6 +423,88 @@ Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	1
                     <div class="helper-text">Required for the native species</div>
                 </div>
             </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Post-clearing debris burn date</label>
+                    <input type="date" data-field="debrisBurnDate" data-optional>
+                    <div class="helper-text">When the debris was burnt, or is planned to be within 3 years of clearing. Leave blank if no burn.</div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="wildfiresTemplate">
+        <div class="instance">
+            <button type="button" class="btn-remove">Remove</button>
+            <div class="instance-title">Wildfire</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Planting</label>
+                    <select data-field="plantingName" data-event-planting></select>
+                </div>
+                <div class="form-group">
+                    <label>Event date</label>
+                    <input type="date" data-field="date">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Percent of planting burned</label>
+                    <input type="number" step="1" min="0" max="100" data-field="percentBurnt">
+                </div>
+                <div class="form-group">
+                    <label>Percent of trees killed</label>
+                    <input type="number" step="1" min="0" max="100" data-field="percentTreesKilled">
+                    <div class="helper-text">In the burnt area</div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="plannedBurnsTemplate">
+        <div class="instance">
+            <button type="button" class="btn-remove">Remove</button>
+            <div class="instance-title">Planned burn</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Planting</label>
+                    <select data-field="plantingName" data-event-planting></select>
+                </div>
+                <div class="form-group">
+                    <label>Event date</label>
+                    <input type="date" data-field="date">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Percent of planting affected</label>
+                    <input type="number" step="1" min="0" max="100" data-field="percentAffected">
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="growthPausesTemplate">
+        <div class="instance">
+            <button type="button" class="btn-remove">Remove</button>
+            <div class="instance-title">Growth pause</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Planting</label>
+                    <select data-field="plantingName" data-event-planting></select>
+                </div>
+                <div class="form-group">
+                    <label>Event date</label>
+                    <input type="date" data-field="date">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Pause length (years)</label>
+                    <input type="number" step="0.01" min="0" data-field="pauseYears">
+                    <div class="helper-text">Decimal years, e.g. 3.75 for 3 years 9 months</div>
+                </div>
+            </div>
         </div>
     </template>
 
@@ -413,14 +529,24 @@ Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	1
         const lists = {
             plantings: document.getElementById('plantingsList'),
             clearedPlantings: document.getElementById('clearedPlantingsList'),
-            otherClearings: document.getElementById('otherClearingsList')
+            otherClearings: document.getElementById('otherClearingsList'),
+            wildfires: document.getElementById('wildfiresList'),
+            plannedBurns: document.getElementById('plannedBurnsList'),
+            growthPauses: document.getElementById('growthPausesList')
         };
 
         const EMPTY_MESSAGES = {
             plantings: 'No plantings',
             clearedPlantings: 'No cleared plantings',
-            otherClearings: 'No other clearing'
+            otherClearings: 'No other clearing',
+            wildfires: 'No wildfires',
+            plannedBurns: 'No planned burns',
+            growthPauses: 'No growth pauses'
         };
+
+        // Clearings are modelled for the reporting period and the 20 years before it
+        const LOOKBACK_YEARS = 20;
+        const DEBRIS_BURN_MAX_YEARS = 3;
 
         // YYYY-MM-DD <-> YYYYMMDD
         const toDateNumber = (value) => value ? parseInt(value.replace(/-/g, ''), 10) : NaN;
@@ -457,7 +583,7 @@ Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	1
             for (const [field, value] of Object.entries(values)) {
                 const input = row.querySelector(`[data-field="${field}"]`);
                 if (!input) continue;
-                if (input.dataset.plantings !== undefined) {
+                if (input.dataset.plantings !== undefined || input.dataset.eventPlanting !== undefined) {
                     input.dataset.initial = value;
                 } else {
                     input.value = input.type === 'date' ? toDateInput(value) : value;
@@ -478,11 +604,14 @@ Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	1
                 row.querySelectorAll('[data-field]').forEach(input => {
                     const field = input.dataset.field;
                     if (input.type === 'date') {
-                        values[field] = toDateNumber(input.value);
+                        // A blank optional date (e.g. no debris burn) means none, not an invalid date
+                        values[field] = input.value === '' && input.dataset.optional !== undefined
+                            ? undefined
+                            : toDateNumber(input.value);
                     } else if (input.type === 'number') {
                         values[field] = toNumber(input.value);
                     } else if (field === 'treeAgeYears') {
-                        // Anything that isn't a number from 1 to 9999 is treated as mature by the builder
+                        // Anything that isn't a number over 0 and up to 9999 is treated as mature by the builder
                         values[field] = toNumber(input.value);
                     } else {
                         values[field] = input.value;
@@ -502,7 +631,10 @@ Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	1
                 },
                 plantings: readRows('plantings'),
                 clearedPlantings: readRows('clearedPlantings'),
-                otherClearings: readRows('otherClearings')
+                otherClearings: readRows('otherClearings'),
+                wildfires: readRows('wildfires'),
+                plannedBurns: readRows('plannedBurns'),
+                growthPauses: readRows('growthPauses')
             };
         }
 
@@ -535,38 +667,51 @@ Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	1
             lists.plantings.querySelectorAll('[data-field="datePlanted"]').forEach(input => {
                 setDateLimits(input, null, range?.max);
             });
-            lists.otherClearings.querySelectorAll('[data-field="dateCleared"]').forEach(input => {
-                setDateLimits(input, range?.min, range?.max);
+            // Clearings may be historical: from 20 years before the reporting period to its end
+            const lookbackMin = range ? `${Number(range.min.slice(0, 4)) - LOOKBACK_YEARS}${range.min.slice(4)}` : null;
+            const dayAfter = (date) => isoDate(Date.parse(toDateInput(date)) + 86400000);
+            const yearsAfter = (date, years) => toDateInput(date + years * 10000);
+            // A debris burn is on or after the clearing, and no more than 3 years after it
+            const limitDebrisBurn = (row, dateCleared) => setDateLimits(
+                row.querySelector('[data-field="debrisBurnDate"]'),
+                dateCleared ? toDateInput(dateCleared) : null,
+                dateCleared ? yearsAfter(dateCleared, DEBRIS_BURN_MAX_YEARS) : null
+            );
+
+            lists.otherClearings.querySelectorAll('.instance').forEach(row => {
+                setDateLimits(row.querySelector('[data-field="dateCleared"]'), lookbackMin, range?.max);
+                limitDebrisBurn(row, toDateNumber(row.querySelector('[data-field="dateCleared"]').value));
             });
 
-            // Each planting can be cleared once: a row keeps its own choice, and other rows can't pick it.
-            // Rows without a valid choice (e.g. new rows) take the first planting that isn't cleared yet.
-            const clearedRows = [...lists.clearedPlantings.querySelectorAll('.instance')];
-            const plantingNames = plantingOptions.map(([name]) => name);
-            const choices = clearedRows.map(row => {
-                const select = row.querySelector('[data-plantings]');
+            // Planting dropdowns (cleared plantings and events) list every planting; a planting can be
+            // cleared in several rows (one per year). New rows take the first planting.
+            const choosePlanting = (select) => {
                 const wanted = select.dataset.initial ?? select.value;
                 delete select.dataset.initial;
-                return plantingNames.includes(wanted) ? wanted : null;
-            });
-            choices.forEach((choice, i) => {
-                if (choice === null || choices.indexOf(choice) !== i) {
-                    choices[i] = plantingNames.find(name => !choices.includes(name)) ?? null;
+                fillSelect(select, plantingOptions);
+                if (plantingOptions.some(([name]) => name === wanted)) {
+                    select.value = wanted;
                 }
-            });
+                return plantings.find(p => p.name === select.value);
+            };
 
-            const addClearedButton = document.querySelector('[data-add="clearedPlantings"]');
-            const noneLeft = plantingNames.every(name => choices.includes(name));
-            addClearedButton.disabled = noneLeft;
-            document.getElementById('clearedPlantingsNote').textContent = !noneLeft ? ''
-                : plantingNames.length === 0 ? 'Add a planting first' : 'Every planting already has a clearing';
+            const noPlantings = plantingOptions.length === 0;
+            for (const listName of ['clearedPlantings', 'wildfires', 'plannedBurns', 'growthPauses']) {
+                document.querySelector(`[data-add="${listName}"]`).disabled = noPlantings;
+            }
+            document.getElementById('clearedPlantingsNote').textContent = noPlantings ? 'Add a planting first' : '';
 
-            clearedRows.forEach((row, i) => {
-                const select = row.querySelector('[data-plantings]');
-                fillSelect(select, plantingOptions.filter(([name]) => name === choices[i] || !choices.includes(name)));
-                select.value = choices[i] ?? '';
+            for (const listName of ['wildfires', 'plannedBurns', 'growthPauses']) {
+                lists[listName].querySelectorAll('.instance').forEach(row => {
+                    const planting = choosePlanting(row.querySelector('[data-event-planting]'));
+                    // Events happen after planting, up to the end of the reporting period
+                    setDateLimits(row.querySelector('[data-field="date"]'),
+                        planting?.datePlanted ? toDateInput(planting.datePlanted) : null, range?.max);
+                });
+            }
 
-                const planting = plantings.find(p => p.name === select.value);
+            lists.clearedPlantings.querySelectorAll('.instance').forEach(row => {
+                const planting = choosePlanting(row.querySelector('[data-plantings]'));
                 const dateCleared = toDateNumber(row.querySelector('[data-field="dateCleared"]').value);
                 const areaCleared = toNumber(row.querySelector('[data-field="areaClearedHa"]').value);
                 const derived = [];
@@ -582,12 +727,11 @@ Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	1
                 }
                 row.querySelector('[data-derived]').textContent = derived.join(' · ');
 
-                // Cleared after the planting, and within the reporting period
-                const dayAfterPlanted = planting?.datePlanted
-                    ? isoDate(Date.parse(toDateInput(planting.datePlanted)) + 86400000)
-                    : null;
-                const min = [range?.min, dayAfterPlanted].filter(Boolean).sort().pop();
+                // Cleared after the planting, from the lookback period to the end of the reporting period
+                const dayAfterPlanted = planting?.datePlanted ? dayAfter(planting.datePlanted) : null;
+                const min = [lookbackMin, dayAfterPlanted].filter(Boolean).sort().pop();
                 setDateLimits(row.querySelector('[data-field="dateCleared"]'), min, range?.max);
+                limitDebrisBurn(row, dateCleared);
 
                 const areaInput = row.querySelector('[data-field="areaClearedHa"]');
                 planting?.areaHa > 0 ? areaInput.setAttribute('max', planting.areaHa) : areaInput.removeAttribute('max');
@@ -726,7 +870,10 @@ Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	1
                 periodEnd: document.getElementById('pastePeriodEnd').value,
                 plantings: document.getElementById('pastePlantings').value,
                 clearedPlantings: document.getElementById('pasteClearedPlantings').value,
-                otherClearings: document.getElementById('pasteOtherClearings').value
+                otherClearings: document.getElementById('pasteOtherClearings').value,
+                wildfires: document.getElementById('pasteWildfires').value,
+                plannedBurns: document.getElementById('pastePlannedBurns').value,
+                growthPauses: document.getElementById('pasteGrowthPauses').value
             });
             // Problems reading the paste come first; the scenario checks run once it reads cleanly
             pasteErrors = parsed.errors.length > 0
@@ -775,17 +922,30 @@ Ridge mallee	16-June-2025	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	1
             }
         }
 
-        // Example scenario
+        // Example scenario (same as the Paste from Excel samples)
         addRow('plantings', {
             name: 'Back paddock eucalypt', datePlanted: 20000120, areaHa: 100,
-            latitude: -33.8688, longitude: 151.2093, species: 'mallee', rainfallMm: 601
+            latitude: -33.8688, longitude: 151.2093, species: 'mallee', rainfallMm: 599
         });
         addRow('clearedPlantings', {
-            plantingName: 'Back paddock eucalypt', dateCleared: 20250616, areaClearedHa: 50, clearingType: 'thin-clearing'
+            plantingName: 'Back paddock eucalypt', dateCleared: 20230101, areaClearedHa: 30,
+            clearingType: 'no-product-recovery', debrisBurnDate: 20230101
+        });
+        addRow('clearedPlantings', {
+            plantingName: 'Back paddock eucalypt', dateCleared: 20250616, areaClearedHa: 20, clearingType: 'no-product-recovery'
         });
         addRow('otherClearings', {
-            description: 'Ridge mallee', dateCleared: 20250616, latitude: -33.8688, longitude: 151.2093,
-            areaClearedHa: 50, species: 'mallee', treeAgeYears: 100, clearingType: 'thin-clearing', rainfallMm: 601
+            description: 'Ridge mallee', dateCleared: 20230616, latitude: -33.8688, longitude: 151.2093,
+            areaClearedHa: 50, species: 'mallee', clearingType: 'no-product-recovery', rainfallMm: 599
+        });
+        addRow('wildfires', {
+            plantingName: 'Back paddock eucalypt', date: 20250916, percentBurnt: 50, percentTreesKilled: 50
+        });
+        addRow('plannedBurns', {
+            plantingName: 'Back paddock eucalypt', date: 20250401, percentAffected: 50
+        });
+        addRow('growthPauses', {
+            plantingName: 'Back paddock eucalypt', date: 20250616, pauseYears: 0.5
         });
     </script>
 </body>

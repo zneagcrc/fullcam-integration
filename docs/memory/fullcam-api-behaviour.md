@@ -18,6 +18,7 @@ Verified against the live FullCAM 2024 APIs (October 2026). The DCCEEW docs in `
 - **`GET /species?specId=N`** returns a complete `<SpeciesForest>` block (~0.4s) that drops straight into a plot file. It's identical across locations (NSW and WA compared), so the blocks are bundled in `project/src/fullcam-templates/species/` and refreshed with `project/scripts/fetch-species.mjs`.
 - **Plot events are copies of library events.** Each species block contains a library of events (planting, clearing, fires, thinning). A plot event is the library event with `tEvent="SpecF"` changed to `"Doc"`, plus `nmRegime`, a `regimeInstance` UUID and `<dateEV>`.
 - **`update-spatialdata`** only normalises blank species fields to `0.0`; it doesn't change growth parameters. It keeps any extra `<OutLook>` output selections in the plot.
+- **Forest treatment events (`tEV="TmtF"`, used for growth pauses) aren't in any API source:** not in the species libraries, the 3 `templates`, or `regimes`. The builder writes the XML itself, following one made in the FullCAM web app (`docs/Environmental Plantings Method - From FullCAM template.plo`): `<TmtF ageAdvTmtF="-0.5" advPeriodTmtF="0.5" yieldMultTmtF="" type1On="true" type2On="false" fixTmtF="" phaTmtF=""/>`, with `tFaqEV`, `aqStYrEV`, `categoryEV` and `idSP` blank. FullCAM accepts it (verified live).
 
 ## Simulator
 

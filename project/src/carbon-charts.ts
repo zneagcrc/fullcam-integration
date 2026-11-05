@@ -84,7 +84,8 @@ function extractStepCarbonChanges(simulationData: any, range: CarbonAnalysisRang
       treesCarbon: trees,
       debrisCarbon: debris,
       productsCarbon: products,
-      combinedCarbon: trees + debris + products
+      // Woody carbon (trees + debris), as in the results; products are their own series
+      combinedCarbon: trees + debris
     });
   }
 
@@ -334,7 +335,7 @@ function renderCarbonTotalChart(container: HTMLElement | null, totals: Cumulativ
       <span style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:10px;height:2px;background:${treesColor};"></span>C content of trees</span>
       <span style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:10px;height:2px;background:${debrisColor};"></span>C content of debris</span>
       <span style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:10px;height:2px;background:${productsColor};"></span>C content of wood products</span>
-      <span style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:10px;height:2px;background:${combinedColor};"></span>Total C content (trees, debris and wood products)</span>
+      <span style="display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:10px;height:2px;background:${combinedColor};"></span>Woody C content (trees and debris)</span>
     </div>
     <div class="carbon-chart-svg-wrap">
       <svg viewBox="0 0 ${width} ${height}" width="100%" height="280" role="img" aria-label="Total carbon by month">
@@ -376,7 +377,7 @@ function renderCarbonTotalChart(container: HTMLElement | null, totals: Cumulativ
       <div>Trees: ${trees} tC/ha</div>
       <div>Debris: ${debris} tC/ha</div>
       <div>Wood products: ${products} tC/ha</div>
-      <div>Total: ${combined} tC/ha</div>
+      <div>Woody (trees + debris): ${combined} tC/ha</div>
     `;
     tooltip.style.display = 'block';
 
@@ -693,7 +694,7 @@ export function renderStockChart(
   options: { incomplete?: boolean } = {}
 ): void {
   const chartOptions: LineChartOptions = {
-    title: `Carbon stock: trees, debris and wood products (tC)${incompleteNote(options.incomplete)}`,
+    title: `Woody carbon stock: trees and debris (tC)${incompleteNote(options.incomplete)}`,
     valueLabel: 'Carbon stock',
     signed: false,
     axis: 'auto',

@@ -3,7 +3,14 @@
  * Handles updating spatial data for FullCAM plots via API
  */
 
-import { generatePlotFile, type PlotActivities, type SiteCoordinates, type SimulationDates } from './fullcam-templates/plot-builder';
+import {
+  generatePlotFile,
+  type FireActivity,
+  type FireKind,
+  type PlotActivities,
+  type SiteCoordinates,
+  type SimulationDates,
+} from './fullcam-templates/plot-builder';
 
 // Use environment variable or default to localhost for development
 const API_BASE_URL = import.meta.env.VITE_API_PROXY_URL || 'http://localhost:3001';
@@ -906,7 +913,111 @@ export interface CarbonResults {
   /** Carbon in wood products at the end of the clearing window, less any at its start */
   productsHeld?: CarbonPeriodResult;
   net?: CarbonPeriodResult;
+  /** Tree and debris stocks at the start and end of the analysis period */
+  stocks?: CarbonStocks;
+  /** Gas emitted by fires dated in the analysis period (t/ha of the plot), for the biomass burning method */
+  fireEmissions?: { ch4: number; n2o: number };
+  /** Each fire in the plot with the gas FullCAM recorded for it (t/ha of the plot) */
+  fires?: FireEmission[];
+  /** For a clearing: its 20-year woody carbon change and this period's share (Appendix A2.6) */
+  allocation?: ClearingAllocation;
+  /** For a clearing: C mass of forest products in the clearing's row less the row before (tC/ha), the chapter's Cp */
+  productsAtClearing?: number;
   notes: string[];
+}
+
+/** A fire and the gas FullCAM recorded for it */
+export interface FireEmission {
+  /** YYYYMMDD */
+  date: number;
+  kind: FireKind;
+  /** Share of the plot burnt, 0-1 */
+  fractionAffected: number;
+  /** t/ha of the whole plot (FullCAM already scales by the share burnt) */
+  ch4: number;
+  n2o: number;
+  /** Another fire was recorded in the same month row, so this fire's gas couldn't be separated from it */
+  combinedWithOtherFire: boolean;
+}
+
+/**
+ * Matches each fire to the month row FullCAM records its gas in: the fire's own month, except a fire
+ * dated on the 1st is recorded in the previous month's row (verified live). A row is only counted once;
+ * if two fires land in the same row, the later one is flagged as combined.
+ */
+function attributeFireEmissions(pools: CarbonPools, fires: FireActivity[]): FireEmission[] {
+  const claimed = new Set<number>();
+  const hasGas = (row: number) => (pools.ch4.get(row) ?? 0) > 0 || (pools.n2o.get(row) ?? 0) > 0;
+  return [...fires]
+    .sort((a, b) => a.date - b.date)
+    .map(fire => {
+      const month = monthIndexOfDate(fire.date);
+      const expected = fire.date % 100 === 1 ? month - 1 : month;
+      const other = expected === month ? month - 1 : month;
+      // Use the expected row; fall back to the neighbouring row if the gas landed there instead
+      const row = hasGas(expected) || !hasGas(other) ? expected : other;
+      const combined = hasGas(row) && claimed.has(row);
+      const counted = hasGas(row) && !combined;
+      if (counted) {
+        claimed.add(row);
+      }
+      return {
+        date: fire.date,
+        kind: fire.kind,
+        fractionAffected: fire.fractionAffected,
+        ch4: counted ? pools.ch4.get(row) ?? 0 : 0,
+        n2o: counted ? pools.n2o.get(row) ?? 0 : 0,
+        combinedWithOtherFire: combined,
+      };
+    });
+}
+
+/**
+ * Appendix A2.6 of the VEERG LULUCF chapter: a clearing's woody carbon change over the 20 years after
+ * it, spread over those years with a linear-decline discount factor (Table 16.27).
+ */
+export interface ClearingAllocation {
+  /** Month of the clearing, e.g. "Jun 2025" */
+  clearingLabel: string;
+  /** Month whose end-of-month row is 20 years after the clearing, e.g. "Jun 2045" */
+  afterLabel: string;
+  /** Trees + debris just before the clearing and 20 years after it (tC/ha) */
+  stockBefore: number;
+  stockAfter: number;
+  /** The same, split into the chapter's equation arguments (tC/ha) */
+  treesBefore: number;
+  treesAfter: number;
+  debrisBefore: number;
+  debrisAfter: number;
+  /** stockAfter - stockBefore (tC/ha); negative is a loss */
+  change: number;
+  /** Gas from burning the cleared debris (t/ha of the plot; the whole cleared area is burnt) */
+  ch4: number;
+  n2o: number;
+  /** Whole years from the clearing to the end of the reporting period (0 = cleared in this period's year) */
+  yearsSinceClearing: number;
+  /** Table 16.27 factor for those years since clearing; 0 once 20 or more years have passed */
+  discountFactor: number;
+}
+
+/** Table 16.27: 0.0975 in the year of clearing, falling by 0.005 a year to 0.0025 in year 19 */
+export function clearingDiscountFactor(yearsSinceClearing: number): number {
+  return yearsSinceClearing >= 0 && yearsSinceClearing < 20 ? (975 - 50 * yearsSinceClearing) / 10000 : 0;
+}
+
+/**
+ * Carbon mass of trees and debris (tC/ha) at the end of the month before the analysis period
+ * (year y-1) and at the end of its last month (year y), as the VEERG LULUCF chapter uses them.
+ */
+export interface CarbonStocks {
+  /** Month whose end-of-month row gives the start values, e.g. "Dec 2024" */
+  startLabel: string;
+  /** Month whose end-of-month row gives the end values, e.g. "Dec 2025" */
+  endLabel: string;
+  treesStart: number;
+  treesEnd: number;
+  debrisStart: number;
+  debrisEnd: number;
 }
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -925,18 +1036,28 @@ function monthLabel(index: number): string {
 }
 
 /**
- * Carbon stock (trees + forest debris + forest products, tC/ha) by month index, from simulation
- * CSV output. Each row is the stock at the end of its month. Null if required columns are missing.
+ * Woody carbon stock (trees + forest debris, tC/ha) by month index, from simulation CSV output.
+ * Each row is the stock at the end of its month. Null if required columns are missing.
  */
 export function parseCarbonStock(csv: string): Map<number, number> | null {
   return parseCarbonPools(csv)?.total ?? null;
 }
 
+interface CarbonPools {
+  /** Woody carbon: trees + debris. Wood products are reported separately, not counted here. */
+  total: Map<number, number>;
+  trees: Map<number, number>;
+  debris: Map<number, number>;
+  products: Map<number, number>;
+  /** Gas emitted by fire in each month (flows, not stocks), t/ha */
+  ch4: Map<number, number>;
+  n2o: Map<number, number>;
+}
+
 /**
- * Carbon by month index from simulation CSV output (tC/ha): the total stock (trees + debris +
- * products) and the wood products pool on its own. Null if required columns are missing.
+ * Carbon pools by month index from simulation CSV output (tC/ha). Null if required columns are missing.
  */
-function parseCarbonPools(csv: string): { total: Map<number, number>; products: Map<number, number> } | null {
+function parseCarbonPools(csv: string): CarbonPools | null {
   const lines = csv.split('\n').filter(line => line.trim());
   if (lines.length === 0) {
     return null;
@@ -952,8 +1073,11 @@ function parseCarbonPools(csv: string): { total: Map<number, number>; products: 
     return null;
   }
 
-  const total = new Map<number, number>();
-  const products = new Map<number, number>();
+  const ch4Index = headers.findIndex(h => h.includes('CH4 emitted due to fire'));
+  const n2oIndex = headers.findIndex(h => h.includes('N2O emitted due to fire'));
+  const pools: CarbonPools = {
+    total: new Map(), trees: new Map(), debris: new Map(), products: new Map(), ch4: new Map(), n2o: new Map(),
+  };
   for (const line of lines.slice(1)) {
     const values = line.split(',');
     const value = (index: number) => (index === -1 ? 0 : parseFloat(values[index]) || 0);
@@ -961,11 +1085,15 @@ function parseCarbonPools(csv: string): { total: Map<number, number>; products: 
     const step = parseInt(values[stepIndex], 10);
     if (!isNaN(year) && !isNaN(step)) {
       const month = monthIndex(year, step);
-      total.set(month, value(treesIndex) + value(debrisIndex) + value(productsIndex));
-      products.set(month, value(productsIndex));
+      pools.trees.set(month, value(treesIndex));
+      pools.debris.set(month, value(debrisIndex));
+      pools.products.set(month, value(productsIndex));
+      pools.total.set(month, value(treesIndex) + value(debrisIndex));
+      pools.ch4.set(month, value(ch4Index));
+      pools.n2o.set(month, value(n2oIndex));
     }
   }
-  return { total, products };
+  return pools;
 }
 
 export interface CarbonSeriesPoint {
@@ -995,7 +1123,8 @@ export function carbonStockSeries(stock: Map<number, number>, analysis: CarbonAn
 
 /**
  * Splits carbon change over the analysis period into planting, clearing and net results.
- * Carbon stock = trees + forest debris + forest products (wood products are treated as stored).
+ * Woody carbon stock = trees + forest debris, as in the VEERG LULUCF chapter; carbon moved into
+ * wood products is reported separately (productsHeld) rather than counted as stored.
  * - Planting: from the planting (or analysis start) to the clearing that removes it (or analysis end)
  * - Clearing: from the clearing (or analysis start) to the next planting (or analysis end)
  * - Net: the whole analysis period
@@ -1036,6 +1165,9 @@ export function calculateCarbonResults(
     const analysisFrom = monthIndex(analysis.startYear, analysis.startMonth) - 1;
     const analysisTo = monthIndex(analysis.endYear, analysis.endMonth);
     const { planting, clearing } = activities;
+    const fires = attributeFireEmissions(pools, activities.fires ?? []);
+    const inPeriod = (date: number) => monthIndexOfDate(date) > analysisFrom && monthIndexOfDate(date) <= analysisTo;
+    const sumFires = (list: FireEmission[], gas: 'ch4' | 'n2o') => list.reduce((total, fire) => total + fire[gas], 0);
 
     let plantingResult: CarbonPeriodResult | undefined;
     if (planting) {
@@ -1043,15 +1175,52 @@ export function calculateCarbonResults(
       const clearedLater = clearing && clearing.date > planting.date;
       const to = clearedLater ? Math.min(monthIndexOfDate(clearing.date) - 1, analysisTo) : analysisTo;
       plantingResult = measure(Math.max(plantingMonth - 1, analysisFrom), to, 1);
-      if (!plantingResult) {
+      // A planting cleared before the period (historical clearing) has no planting result, as expected
+      const plantedInPeriod = plantingMonth > analysisFrom && plantingMonth <= analysisTo;
+      if (!plantingResult && plantedInPeriod) {
         notes.push('The planting has no full month inside the analysis period, so it has no separate result.');
       }
     }
 
     let clearingResult: CarbonPeriodResult | undefined;
     let productsResult: CarbonPeriodResult | undefined;
+    let allocation: ClearingAllocation | undefined;
+    let productsAtClearing: number | undefined;
     if (clearing) {
       const clearingMonth = monthIndexOfDate(clearing.date);
+
+      // Appendix A2.6: stock just before the clearing and 20 years on (same month)
+      const beforeRow = clearingMonth - 1;
+      const afterRow = clearingMonth + 20 * 12;
+      const stockBefore = pools.total.get(beforeRow);
+      const stockAfter = pools.total.get(afterRow);
+      if (stockBefore === undefined || stockAfter === undefined) {
+        notes.push('The simulation doesn\'t reach 20 years after the clearing, so it has no 20-year allocation.');
+      } else {
+        const yearsSinceClearing = Math.floor((analysisTo - clearingMonth) / 12);
+        const debrisBurns = fires.filter(fire => fire.kind === 'debris-burn');
+        allocation = {
+          clearingLabel: monthLabel(clearingMonth),
+          afterLabel: monthLabel(afterRow),
+          stockBefore,
+          stockAfter,
+          treesBefore: pools.trees.get(beforeRow)!,
+          treesAfter: pools.trees.get(afterRow)!,
+          debrisBefore: pools.debris.get(beforeRow)!,
+          debrisAfter: pools.debris.get(afterRow)!,
+          change: stockAfter - stockBefore,
+          ch4: sumFires(debrisBurns, 'ch4'),
+          n2o: sumFires(debrisBurns, 'n2o'),
+          yearsSinceClearing,
+          discountFactor: clearingDiscountFactor(yearsSinceClearing),
+        };
+      }
+      // The chapter's Cp: products in the clearing's row less the row before
+      const productsAt = pools.products.get(clearingMonth);
+      const productsBefore = pools.products.get(clearingMonth - 1);
+      if (productsAt !== undefined && productsBefore !== undefined) {
+        productsAtClearing = productsAt - productsBefore;
+      }
       const replantedLater = planting && planting.date >= clearing.date;
       const to = replantedLater ? Math.min(monthIndexOfDate(planting.date) - 1, analysisTo) : analysisTo;
       const from = Math.max(clearingMonth - 1, analysisFrom);
@@ -1067,7 +1236,7 @@ export function calculateCarbonResults(
         notes.push('Debris from the clearing that is still decaying after the replanting is counted in the planting result.');
       }
       if (clearing.type === 'product-recovery') {
-        notes.push('Wood products recovered at clearing are counted as stored carbon; their later decay counts as released.');
+        notes.push('Carbon recovered into wood products at clearing counts as released from the woody carbon stock; it is shown separately as held in wood products.');
       }
     }
 
@@ -1075,12 +1244,36 @@ export function calculateCarbonResults(
       notes.push('Planting and clearing results cover only their own periods, so they may not add up to the net change.');
     }
 
+    const stockAt = (pool: Map<number, number>, row: number) => {
+      const value = pool.get(row);
+      if (value === undefined) {
+        throw new Error(`No simulation output for ${monthLabel(row)}`);
+      }
+      return value;
+    };
+
     return {
       success: true,
       planting: plantingResult,
       clearing: clearingResult,
       productsHeld: productsResult,
       net: measure(analysisFrom, analysisTo, 1),
+      stocks: {
+        startLabel: monthLabel(analysisFrom),
+        endLabel: monthLabel(analysisTo),
+        treesStart: stockAt(pools.trees, analysisFrom),
+        treesEnd: stockAt(pools.trees, analysisTo),
+        debrisStart: stockAt(pools.debris, analysisFrom),
+        debrisEnd: stockAt(pools.debris, analysisTo),
+      },
+      // Fires dated in the period (a fire on the 1st of the first month is recorded in the opening row)
+      fireEmissions: {
+        ch4: sumFires(fires.filter(fire => inPeriod(fire.date)), 'ch4'),
+        n2o: sumFires(fires.filter(fire => inPeriod(fire.date)), 'n2o'),
+      },
+      fires,
+      allocation,
+      productsAtClearing,
       notes,
     };
   } catch (error) {
