@@ -169,12 +169,25 @@
             border-radius: 4px;
             background: #fdecea;
         }
-        .form-errors p {
+        .form-errors p,
+        .form-warnings p {
             margin: 0 0 5px 0;
         }
-        .form-errors ul {
+        .form-errors ul,
+        .form-warnings ul {
             margin: 0;
             padding-left: 20px;
+        }
+        .form-warnings {
+            margin-top: 20px;
+            padding: 10px 15px;
+            border: 1px solid #f9a825;
+            border-radius: 4px;
+            background: #fff8e1;
+        }
+        .form-warnings p {
+            color: #8a6d00;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -208,6 +221,15 @@
                 </div>
             </div>
             <div class="field-error" id="periodError"></div>
+
+            <div class="section-header">Site</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="siteRainfall">Average total annual rainfall (mm)</label>
+                    <input type="number" id="siteRainfall" step="1" min="0" value="599">
+                    <div class="helper-text">Used for every planting and clearing. Required for the native species (picks the &lt;500mm or &ge;500mm variant).</div>
+                </div>
+            </div>
 
             <div class="section-header">Plantings</div>
             <div id="plantingsList"></div>
@@ -256,18 +278,28 @@
                 </div>
             </div>
 
+            <div class="section-header">Site</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="pasteRainfall">Average total annual rainfall (mm)</label>
+                    <input type="text" id="pasteRainfall" value="599">
+                    <div class="helper-text">Used for every planting and clearing. Required for the native species.</div>
+                </div>
+            </div>
+
             <div class="section-header">Planting instances</div>
-            <textarea id="pastePlantings" spellcheck="false" placeholder="Paste the planting instances table here...">Planting name	Date planted	Area originally planted (hectares)	Latitude	Longitude	Species (select)	Age of trees (years)	Average annual rainfall (mm)	Carbon sequestered (t C)
-Back paddock eucalypt	20-January-2000	100	-33.8688	151.2093	Mallee eucalypt species	25	599	</textarea>
+            <textarea id="pastePlantings" spellcheck="false" placeholder="Paste the planting instances table here...">Planting name	Date planted	Area originally planted (hectares)	Latitude	Longitude	Species (select)	Age of trees (years)
+Back paddock eucalypt	20-January-2000	100	-33.8688	151.2093	Mallee eucalypt species	23</textarea>
 
             <div class="section-header">Cleared plantings</div>
-            <textarea id="pasteClearedPlantings" spellcheck="false" placeholder="Paste the cleared plantings table here...">Planting instance (select)	Date cleared	Planting area	Area cleared (hectares)	Percent cleared	Species cleared	Age of trees (years)	Clearing type (select)	Post-clearing debris burn date	Average annual rainfall (mm)	Carbon released (t C)	Carbon held in products (t C)
-Back paddock eucalypt	01-January-2023	100	30	30%	Mallee eucalypt species	22.95	Initial clearing: no product recovery	01-January-2023	599		
-Back paddock eucalypt	16-June-2025	100	20	20%	Mallee eucalypt species	25.4	Initial clearing: no product recovery		599		</textarea>
+            <textarea id="pasteClearedPlantings" spellcheck="false" placeholder="Paste the cleared plantings table here...">Planting instance (select)	Date cleared	Planting area	Area cleared (hectares)	Percent cleared	Species cleared	Age of trees (years)	Clearing type (select)	Post-clearing debris burn date	Land use after clearing (select)
+Back paddock eucalypt	01-January-2023	100	50	50%	Mallee eucalypt species	22.94722222	Initial clearing: no product recovery	01-January-2023	Irrigated crop
+Back paddock eucalypt	01-January-2024	100	10	10%	Mallee eucalypt species	23.94722222	Initial clearing: no product recovery		Settlements</textarea>
 
             <div class="section-header">Other clearing</div>
-            <textarea id="pasteOtherClearings" spellcheck="false" placeholder="Paste the other clearing table here...">Description	Date cleared	Latitude	Longitude	Area of vegetation before clearing	Area cleared (hectares)	Percent cleared	Species cleared (select)	Age of trees (years)	Clearing type (select)	Post-clearing debris burn date	Average annual rainfall (mm)	Carbon released (t C)	Carbon held in products (t C)
-Ridge mallee	16-June-2023	-33.8688	151.2093	100	50	50%	Mallee eucalypt species		Initial clearing: no product recovery		599		</textarea>
+            <textarea id="pasteOtherClearings" spellcheck="false" placeholder="Paste the other clearing table here...">Description	Date cleared	Latitude	Longitude	Area of vegetation before clearing	Area cleared (hectares)	Percent cleared	Species cleared (select)	Age of trees (years)	Clearing type (select)	Post-clearing debris burn date	Land use after clearing (select)
+Front paddock forest	16-June-2023	-33.8688	151.2093	100	50	50%	Mallee eucalypt species	100	Thin (clearing): to standing dead wood and litter		Irrigated crop
+Clearing for timber	01-January-2025	-33.8688	151.2093	100	10	10%	Environmental plantings		Initial clearing: product recovery	01-January-2027	Non-irrigated pasture</textarea>
 
             <div class="section-header">Wildfire events</div>
             <textarea id="pasteWildfires" spellcheck="false" placeholder="Paste the wildfire events table here...">Planting instance (select)	Event date	Species affected	Percent of planting burned	Percent of trees killed
@@ -283,6 +315,7 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
         </div>
 
         <div id="formErrors" class="form-errors" style="display: none;"></div>
+        <div id="formWarnings" class="form-warnings" style="display: none;"></div>
 
         <div style="margin-top: 20px;">
             <button type="button" class="btn-primary" id="submitBtn">Process with FullCAM</button>
@@ -329,11 +362,6 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
                     <label>Species</label>
                     <select data-field="species" data-species="plantable"></select>
                 </div>
-                <div class="form-group">
-                    <label>Average annual rainfall (mm)</label>
-                    <input type="number" step="1" min="0" data-field="rainfallMm">
-                    <div class="helper-text">Required for Native Species Regeneration</div>
-                </div>
             </div>
         </div>
     </template>
@@ -367,6 +395,10 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
                     <label>Post-clearing debris burn date</label>
                     <input type="date" data-field="debrisBurnDate" data-optional>
                     <div class="helper-text">When the debris was burnt, or is planned to be within 3 years of clearing. Leave blank if no burn.</div>
+                </div>
+                <div class="form-group">
+                    <label>Land use after clearing</label>
+                    <select data-field="landUse" data-land-uses></select>
                 </div>
             </div>
             <div class="derived" data-derived></div>
@@ -418,9 +450,8 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
                     <select data-field="clearingType" data-clearing-types></select>
                 </div>
                 <div class="form-group">
-                    <label>Average annual rainfall (mm)</label>
-                    <input type="number" step="1" min="0" data-field="rainfallMm">
-                    <div class="helper-text">Required for the native species</div>
+                    <label>Land use after clearing</label>
+                    <select data-field="landUse" data-land-uses></select>
                 </div>
             </div>
             <div class="form-row">
@@ -512,7 +543,9 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
         import {
             SPECIES_CHOICES,
             CLEARING_EVENT_NAMES,
+            LAND_USE_LABELS,
             findScenarioIssues,
+            findScenarioWarnings,
             formatIssue,
             runScenario
         } from './src/carbon-scenario.ts';
@@ -579,6 +612,10 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
             row.querySelectorAll('[data-clearing-types]').forEach(select => {
                 fillSelect(select, Object.keys(CLEARING_EVENT_NAMES).map(type => [type, CLEARING_TYPE_LABELS[type]]));
             });
+            // Required, with no default, so a land use is always chosen deliberately
+            row.querySelectorAll('[data-land-uses]').forEach(select => {
+                fillSelect(select, [['', 'Select…'], ...Object.entries(LAND_USE_LABELS)]);
+            });
 
             for (const [field, value] of Object.entries(values)) {
                 const input = row.querySelector(`[data-field="${field}"]`);
@@ -629,6 +666,7 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
                     endYear: parseInt(document.getElementById('periodEndYear').value, 10),
                     endMonth: parseInt(document.getElementById('periodEndMonth').value, 10)
                 },
+                rainfallMm: toNumber(document.getElementById('siteRainfall').value),
                 plantings: readRows('plantings'),
                 clearedPlantings: readRows('clearedPlantings'),
                 otherClearings: readRows('otherClearings'),
@@ -783,6 +821,14 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
                     }
                     continue;
                 }
+                if (issue.list === 'site') {
+                    const input = document.getElementById('siteRainfall');
+                    if (submitted || input.dataset.touched) {
+                        input.classList.add('invalid');
+                        addFieldError(input.closest('.form-group'), issue.message);
+                    }
+                    continue;
+                }
                 const row = lists[issue.list]?.querySelectorAll('.instance')[issue.row];
                 if (!row) continue;
 
@@ -801,6 +847,18 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
             if (submitted) {
                 showFormErrors(issues.map(formatIssue));
             }
+            if (activeTab === 'form') {
+                showFormWarnings(findScenarioWarnings(readScenario()).map(formatIssue));
+            }
+        }
+
+        // Warnings don't stop a run (e.g. events on the same day)
+        function showFormWarnings(warnings) {
+            const formWarnings = document.getElementById('formWarnings');
+            formWarnings.innerHTML = warnings.length > 0
+                ? `<p>Please check:</p><ul>${warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}</ul>`
+                : '';
+            formWarnings.style.display = warnings.length > 0 ? '' : 'none';
         }
 
         function showFormErrors(errors) {
@@ -825,6 +883,7 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
         const tabs = [...document.querySelectorAll('[role="tab"]')];
         let activeTab = 'form';
         let pasteErrors = [];
+        let pasteWarnings = [];
 
         function selectTab(tab) {
             for (const t of tabs) {
@@ -837,10 +896,10 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
             // Show the selected tab's errors only
             if (activeTab === 'paste') {
                 showFormErrors(pasteErrors);
-            } else if (form.dataset.submitted === 'true') {
-                showIssues();
+                showFormWarnings(pasteWarnings);
             } else {
-                showFormErrors([]);
+                if (form.dataset.submitted !== 'true') showFormErrors([]);
+                showIssues();
             }
         }
 
@@ -868,6 +927,7 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
             const parsed = parsePastedScenario({
                 periodStart: document.getElementById('pastePeriodStart').value,
                 periodEnd: document.getElementById('pastePeriodEnd').value,
+                rainfall: document.getElementById('pasteRainfall').value,
                 plantings: document.getElementById('pastePlantings').value,
                 clearedPlantings: document.getElementById('pasteClearedPlantings').value,
                 otherClearings: document.getElementById('pasteOtherClearings').value,
@@ -879,7 +939,11 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
             pasteErrors = parsed.errors.length > 0
                 ? parsed.errors
                 : findScenarioIssues(parsed.scenario).map(issue => formatPastedIssue(issue, parsed.rows));
+            pasteWarnings = parsed.errors.length > 0
+                ? []
+                : findScenarioWarnings(parsed.scenario).map(issue => formatPastedIssue(issue, parsed.rows));
             showFormErrors(pasteErrors);
+            showFormWarnings(pasteWarnings);
             return pasteErrors.length > 0 ? null : parsed.scenario;
         }
 
@@ -925,18 +989,24 @@ Back paddock eucalypt	16-June-2025	Mallee eucalypt species	0.5</textarea>
         // Example scenario (same as the Paste from Excel samples)
         addRow('plantings', {
             name: 'Back paddock eucalypt', datePlanted: 20000120, areaHa: 100,
-            latitude: -33.8688, longitude: 151.2093, species: 'mallee', rainfallMm: 599
+            latitude: -33.8688, longitude: 151.2093, species: 'mallee'
         });
         addRow('clearedPlantings', {
-            plantingName: 'Back paddock eucalypt', dateCleared: 20230101, areaClearedHa: 30,
-            clearingType: 'no-product-recovery', debrisBurnDate: 20230101
+            plantingName: 'Back paddock eucalypt', dateCleared: 20230101, areaClearedHa: 50,
+            clearingType: 'no-product-recovery', debrisBurnDate: 20230101, landUse: 'irrigated-crop'
         });
         addRow('clearedPlantings', {
-            plantingName: 'Back paddock eucalypt', dateCleared: 20250616, areaClearedHa: 20, clearingType: 'no-product-recovery'
+            plantingName: 'Back paddock eucalypt', dateCleared: 20240101, areaClearedHa: 10,
+            clearingType: 'no-product-recovery', landUse: 'settlements'
         });
         addRow('otherClearings', {
-            description: 'Ridge mallee', dateCleared: 20230616, latitude: -33.8688, longitude: 151.2093,
-            areaClearedHa: 50, species: 'mallee', clearingType: 'no-product-recovery', rainfallMm: 599
+            description: 'Front paddock forest', dateCleared: 20230616, latitude: -33.8688, longitude: 151.2093,
+            areaClearedHa: 50, species: 'mallee', treeAgeYears: 100, clearingType: 'thin-clearing', landUse: 'irrigated-crop'
+        });
+        addRow('otherClearings', {
+            description: 'Clearing for timber', dateCleared: 20250101, latitude: -33.8688, longitude: 151.2093,
+            areaClearedHa: 10, species: 'environmental-plantings', clearingType: 'product-recovery',
+            debrisBurnDate: 20270101, landUse: 'non-irrigated-pasture'
         });
         addRow('wildfires', {
             plantingName: 'Back paddock eucalypt', date: 20250916, percentBurnt: 50, percentTreesKilled: 50

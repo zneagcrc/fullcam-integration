@@ -6,11 +6,13 @@
 
 import {
   CLEARING_EVENT_NAMES,
+  LAND_USE_LABELS,
   SPECIES_CHOICES,
   type CarbonScenario,
   type ClearedPlanting,
   type ClearingSpecies,
   type GrowthPause,
+  type LandUseAfterClearing,
   type OtherClearing,
   type PlannedBurn,
   type PlantingInstance,
@@ -114,7 +116,14 @@ function matchClearingType(text: string): ClearingType | null {
   return found ? found[0] : null;
 }
 
+function matchLandUse(text: string): LandUseAfterClearing | null {
+  const value = normalise(text);
+  const found = (Object.entries(LAND_USE_LABELS) as [LandUseAfterClearing, string][]).find(([, label]) => normalise(label) === value);
+  return found ? found[0] : null;
+}
+
 const DEBRIS_BURN_HEADERS = ['Post-clearing debris burn date', 'Debris burn date'];
+const LAND_USE_HEADERS = ['Land use after clearing (select)', 'Land use after clearing'];
 
 interface ColumnSpec {
   key: string;
@@ -157,12 +166,14 @@ function readTable(text: string, table: TableName, columns: ColumnSpec[], errors
 }
 
 /**
- * Reads the pasted tables and the reporting period start and end cells into a scenario.
- * Rows without a name, planting or description (blank template rows) are skipped.
+ * Reads the pasted tables, the reporting period start and end cells and the site rainfall into a
+ * scenario. Rows without a name, planting or description (blank template rows) are skipped.
  */
 export function parsePastedScenario(input: {
   periodStart: string;
   periodEnd: string;
+  /** Site average annual rainfall (mm); a rainfall column in a table overrides it for that row */
+  rainfall?: string;
   plantings: string;
   clearedPlantings: string;
   otherClearings: string;
@@ -182,6 +193,10 @@ export function parsePastedScenario(input: {
   }
   if (end === null) {
     errors.push(`Reporting period: end date "${input.periodEnd.trim()}" isn't a recognised date (e.g. 31-December-2025 or 31/12/2025)`);
+  }
+  const rainfallMm = parseNumber(input.rainfall ?? '');
+  if (Number.isNaN(rainfallMm)) {
+    errors.push(`Site: average annual rainfall "${input.rainfall!.trim()}" isn't a number`);
   }
 
   // Unreadable values become NaN/'' so the scenario checks still report the row
@@ -212,6 +227,14 @@ export function parsePastedScenario(input: {
       errors.push(`${where}: clearing type "${text}" isn't recognised`);
     }
     return type ?? ('' as ClearingType);
+  };
+  // A blank land use is left for the scenario checks to report (it's required)
+  const readLandUse = (where: string, text: string) => {
+    const landUse = matchLandUse(text);
+    if (text && !landUse) {
+      errors.push(`${where}: land use after clearing "${text}" isn't recognised (choose ${Object.values(LAND_USE_LABELS).join(', ')})`);
+    }
+    return landUse ?? ('' as LandUseAfterClearing);
   };
   const where = (table: TableName, tableRow: number, name: string) => `${TABLE_LABELS[table]}, row ${tableRow} (${name})`;
 
@@ -246,6 +269,7 @@ export function parsePastedScenario(input: {
     { key: 'areaClearedHa', header: 'Area cleared (hectares)', required: true },
     { key: 'clearingType', header: 'Clearing type (select)', required: true },
     { key: 'debrisBurnDate', header: DEBRIS_BURN_HEADERS, required: false },
+    { key: 'landUse', header: LAND_USE_HEADERS, required: true },
   ], errors)) {
     if (!cells.plantingName) continue;
     const at = where('clearedPlantings', tableRow, cells.plantingName);
@@ -256,6 +280,7 @@ export function parsePastedScenario(input: {
       areaClearedHa: parseNumber(cells.areaClearedHa) as number,
       clearingType: readClearingType(at, cells.clearingType),
       debrisBurnDate: readOptionalDate(at, 'debris burn date', cells.debrisBurnDate),
+      landUse: readLandUse(at, cells.landUse),
     });
   }
 
@@ -270,6 +295,7 @@ export function parsePastedScenario(input: {
     { key: 'treeAgeYears', header: 'Age of trees (years)', required: false },
     { key: 'clearingType', header: 'Clearing type (select)', required: true },
     { key: 'debrisBurnDate', header: DEBRIS_BURN_HEADERS, required: false },
+    { key: 'landUse', header: LAND_USE_HEADERS, required: true },
     { key: 'rainfallMm', header: 'Average annual rainfall (mm)', required: false },
   ], errors)) {
     if (!cells.description) continue;
@@ -286,6 +312,7 @@ export function parsePastedScenario(input: {
       treeAgeYears: parseNumber(cells.treeAgeYears),
       clearingType: readClearingType(at, cells.clearingType),
       debrisBurnDate: readOptionalDate(at, 'debris burn date', cells.debrisBurnDate),
+      landUse: readLandUse(at, cells.landUse),
       rainfallMm: parseNumber(cells.rainfallMm),
     });
   }
@@ -347,6 +374,7 @@ export function parsePastedScenario(input: {
   return {
     scenario: {
       reportingPeriod: { startYear: yearOf(start), startMonth: monthOf(start), endYear: yearOf(end), endMonth: monthOf(end) },
+      rainfallMm,
       plantings,
       clearedPlantings,
       otherClearings,
@@ -363,6 +391,9 @@ export function parsePastedScenario(input: {
 export function formatPastedIssue(issue: ScenarioIssue, rows: PastedScenario['rows']): string {
   if (issue.list === 'reportingPeriod') {
     return `Reporting period: ${issue.message}`;
+  }
+  if (issue.list === 'site') {
+    return `Site: ${issue.message}`;
   }
   if (issue.list === 'scenario' || issue.row === undefined) {
     return issue.message.charAt(0).toUpperCase() + issue.message.slice(1);

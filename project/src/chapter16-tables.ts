@@ -5,7 +5,7 @@
  * copied straight into the workbook's calculations.
  */
 
-import type { PlotJobResult, ScenarioResult } from './carbon-scenario';
+import { LAND_USE_LABELS, type PlotJobResult, type ScenarioResult } from './carbon-scenario';
 import type { CarbonAnalysisPeriod } from './spatial-data-updater';
 import type { FireKind } from './fullcam-templates/plot-builder';
 
@@ -40,9 +40,11 @@ const FIRE_LABELS: Record<FireKind, string> = {
 };
 
 const ACTIVITY_LABELS: Record<string, string> = {
+  '1': '1 (land clearing: forest to cropland)',
+  '2': '2 (land clearing: forest to grassland)',
+  '3': '3 (land clearing: forest to settlements)',
   '4': '4 (revegetation by planting)',
   '5': '5 (human-induced natural regeneration)',
-  '1-3': '1-3 (land clearing)',
 };
 
 /** Builds the equation input tables from a scenario's results */
@@ -175,13 +177,22 @@ export function buildEquationTables(result: ScenarioResult, period: CarbonAnalys
     columns: [
       { header: 'Activity area (i)' },
       { header: 'Activity (j)' },
+      { header: 'Land use after clearing' },
       { header: 'Date cleared' },
       { header: 'A i,j (ha)', digits: 2 },
+      { header: 'Average annual rainfall (mm)' },
     ],
     rows: rows
       .filter(row => row.job.activities.clearing && inPeriod(row.job.activities.clearing.date))
-      .map(row => [row.job.activityArea, ACTIVITY_LABELS[row.job.activity], formatDate(row.job.activities.clearing!.date), row.job.areaHa]),
-    note: 'Clearings in year y. The annual stock loss for the region (Table 16.4, by IBRA region) isn\'t a FullCAM output, so it comes from the chapter.',
+      .map(row => [
+        row.job.activityArea,
+        ACTIVITY_LABELS[row.job.activity],
+        row.job.landUse && LAND_USE_LABELS[row.job.landUse],
+        formatDate(row.job.activities.clearing!.date),
+        row.job.areaHa,
+        row.job.rainfallMm,
+      ]),
+    note: 'Clearings in year y. The annual stock loss for the region (Table 16.4, by IBRA region) isn\'t a FullCAM output, so it comes from the chapter. Land use, irrigation and rainfall (600mm threshold) pick the N mineralisation emission factor in Sections 16.3 and 16.4.',
   });
 
   return tables;

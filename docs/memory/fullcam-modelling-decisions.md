@@ -5,7 +5,7 @@ Decisions behind `project/src/fullcam-templates/plot-builder.ts`, `calculateCarb
 ## Species and activities
 
 - Species 7, 23, 31, 32, 33 and 34 are supported. Species 31 and 32 have no planting event in their libraries, so they're clearing-only.
-- Users pick a species *choice*; rainfall picks the variant: Native Species Regeneration -> 33 (<500mm) or 34 (>=500mm); Native species and revegetation -> 31 or 32. Rainfall comes from the client's Excel site tab (or SILO).
+- Users pick a species *choice*; rainfall picks the variant: Native Species Regeneration -> 33 (<500mm) or 34 (>=500mm); Native species and revegetation -> 31 or 32. Rainfall is one site value (the workbook's "Average total annual rainfall"), entered once on both tabs; a row's own rainfall (old pastes with a rainfall column, or the older pages) overrides it.
 - All three clearing events are offered. ***Initial clearing: no product recovery*** is the default (the FullCAM team's recommendation for farm clearing): it's listed first in dropdowns, and a blank clearing type in pasted tables uses it.
 - **Starting debris** (plot-level `InitDebrF`): a plot that starts with an existing forest (other clearing) uses the species' default from its `<ForestInit><InitDebrF>`, as the FullCAM team advised (7 = 12.44, 23 = 0, 31 = 34.07, 33 = 3.78, 34 = 10.67 tC/ha). Plots that start as bare ground (plantings, and plantings later cleared) start with no debris, per the VEERG chapter's "No initial trees or debris".
 - **Clearing an existing forest** sets `treeExistsInit="true"` and derives biomass from the tree age at clearing via `tInitStem="FracAge"`. Growth curve: `BlockES` for species 7 and 23 (their defaults ignore age), `BlockLMG` for 31-34. The `BlockLMG` choice for 31 and 32 is unconfirmed.
@@ -32,6 +32,7 @@ Mirrors the client's reporting-year Excel workbook (`project/fullcam-processor.h
 - **Cleared plantings:** one row per planting per *year* of clearing, any date from 20 years before the reporting period to its end. Several clearings in one year: total area and the date when most of it happened. Clearings can't add up to more than the area originally planted.
 - **Other clearing:** existing forest with its own location, species, age and rainfall, cleared in the same window.
 - **Post-clearing debris burn date** (both clearing tables, optional): burnt or planned within 3 years of clearing (chapter A2.6); modelled as *Site prep: Windrow and burn* with its defaults. A burn planned after the reporting period can't change that period's stocks, but is simulated for the 20-year allocation (a note says so).
+- **Land use after clearing** (both clearing tables, required): Non-irrigated crop, Irrigated crop, Non-irrigated pasture, Irrigated pasture or Settlements. It sets the chapter's activity *j* (crop 1, pasture 2, settlements 3). It doesn't change the FullCAM plot; with irrigation and rainfall it picks the N mineralisation emission factor in chapter Sections 16.3-16.4.
 - **Clearing is by area**, so every clearing plot clears 100% (no partial thinning).
 - **Clearings older than the 20-year lookback** aren't modelled (a note says so), but cleared planting area still comes off the planting.
 - **Wildfire events** (planting, date, % of planting burned, % of trees killed) and **planned burns** (planting, date, % affected) apply to the area still standing on the date; percentages are of that standing area. An event after a planting is fully cleared is an error. Chapter Table 16.9 mapping: *Prescribed burn* for planned burns; wildfires use *Wildfire - trees killed* if >5% killed else *trees not killed* (Environmental plantings, Mallee), or the nearest 10% band event (Native Species Regeneration: 0-60%, then 70-100%); % burned sets the area affected; "maximum years to regrow post-fire" is set to 20.
@@ -53,12 +54,12 @@ The results feed the VEERG LULUCF calculations (`C:\htdocs\zneagcrc\GAF-VEERG-Fu
 
 Paul calculates with the chapter's equations in the workbook, so the results give each equation argument separately (never combined), one table per equation, each with a "Copy table" button (tab-separated, full precision; values only unless "Include header row" is ticked, since Paul usually pastes just the values):
 
-- **Activity area = one FullCAM plot.** When a planting is cleared it becomes two areas: the standing remainder (activity *j* = 4 planting, or 5 for Native Species Regeneration) and the cleared part (*j* = 1-3 land clearing; the workbook picks which). Other clearings are their own areas.
+- **Activity area = one FullCAM plot.** When a planting is cleared it becomes two areas: the standing remainder (activity *j* = 4 planting, or 5 for Native Species Regeneration) and the cleared part (*j* = 1, 2 or 3 from its land use after clearing). Other clearings are their own areas, so an other clearing's description can't repeat a planting name.
 - **16.2.1.2 (2)-(4):** A, C trees and C debris at the end of y-1 and y (t C/ha).
 - **16.2.1.4:** one row per fire in year y per activity area it reached; A burnt = area x share burnt, M = FullCAM's gas for the fire / share burnt (per burnt hectare), so M x A burnt = the fire's total gas.
 - **16.2.1.7:** for product-recovery clearings in year y, Cp = forest products in the clearing's row less the row before (the chapter's definition; it applies the method to farm/plantation forestry only).
 - **A2.6.1:** per clearing: A, trees and debris before and 20 years after (split, t C/ha), s, Ds, and the debris burn's A burnt and M (whole cleared area burnt).
-- **16.2.1.5:** A for each clearing in year y (the regional loss rate comes from the chapter's Table 16.4).
+- **16.2.1.5:** A for each clearing in year y, with its land use and rainfall for the 16.3-16.4 emission factors (the regional loss rate comes from the chapter's Table 16.4, by IBRA region, in the workbook). Only clearings *in* year y for now: Table 16.4 is an annual rate and the chapter doesn't say whether it applies only in the clearing year (see open-issues.md).
 - **Fire gas timing (verified live):** FullCAM records a fire's CH4/N2O in one month row, scaled by the share burnt: the fire's own month, except a fire dated on the 1st lands in the previous month's row. Gas is matched to each fire on that basis; two fires in the same row are flagged as combined.
 
 ## 20-year clearing allocation (Appendix A2.6)

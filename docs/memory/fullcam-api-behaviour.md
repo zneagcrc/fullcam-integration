@@ -24,6 +24,7 @@ Verified against the live FullCAM 2024 APIs (October 2026). The DCCEEW docs in `
 
 - **Send the spatial-update response verbatim.** Stripping the `<?xml ...?>` declaration gives `400 Simulation validation failed - no error details available`.
 - **`400 Document not Ready`** happened when a plot started with an existing forest (`treeExistsInit="true"`) and had a planting before a later clearing. Plant-then-clear from bare ground works, and so does clear-then-plant.
+- **`400 Document not Ready`** also happens when a wildfire, a prescribed burn and a forest treatment (growth pause) are all on the same day (Mallee, November 2026). Any two of them on the same day run fine. `findScenarioWarnings` in `carbon-scenario.ts` warns about this (and about any other same-day planting events) without stopping the run.
 - **Output columns** come from `<OutWinSet><OutWin><OutLook tOutOL="...">` in the plot:
 
   | Code | CSV column |

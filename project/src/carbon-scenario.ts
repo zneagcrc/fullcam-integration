@@ -39,6 +39,22 @@ export const SPECIES_CHOICES: Record<ClearingSpecies, { label: string; plantable
 
 export { CLEARING_EVENT_NAMES };
 
+export type LandUseAfterClearing = 'non-irrigated-crop' | 'irrigated-crop' | 'non-irrigated-pasture' | 'irrigated-pasture' | 'settlements';
+
+/** Land uses after clearing, as labelled in the workbook */
+export const LAND_USE_LABELS: Record<LandUseAfterClearing, string> = {
+  'non-irrigated-crop': 'Non-irrigated crop',
+  'irrigated-crop': 'Irrigated crop',
+  'non-irrigated-pasture': 'Non-irrigated pasture',
+  'irrigated-pasture': 'Irrigated pasture',
+  'settlements': 'Settlements',
+};
+
+/** The chapter's land clearing activity (j): 1 forest to cropland, 2 to grassland, 3 to settlements */
+export function landClearingActivity(landUse: LandUseAfterClearing): '1' | '2' | '3' {
+  return landUse === 'settlements' ? '3' : landUse.endsWith('pasture') ? '2' : '1';
+}
+
 export interface PlantingInstance {
   name: string;
   /** YYYYMMDD */
@@ -48,6 +64,7 @@ export interface PlantingInstance {
   latitude: number;
   longitude: number;
   species: PlantingSpecies;
+  /** Overrides the site rainfall for this planting */
   rainfallMm?: number;
 }
 
@@ -60,6 +77,7 @@ export interface ClearedPlanting {
   clearingType: ClearingType;
   /** YYYYMMDD; the cleared debris was burnt, or is planned to be within 3 years of clearing */
   debrisBurnDate?: number;
+  landUse: LandUseAfterClearing;
 }
 
 export interface OtherClearing {
@@ -75,6 +93,8 @@ export interface OtherClearing {
   clearingType: ClearingType;
   /** YYYYMMDD; the cleared debris was burnt, or is planned to be within 3 years of clearing */
   debrisBurnDate?: number;
+  landUse: LandUseAfterClearing;
+  /** Overrides the site rainfall for this clearing */
   rainfallMm?: number;
 }
 
@@ -109,6 +129,8 @@ export interface GrowthPause {
 
 export interface CarbonScenario {
   reportingPeriod: CarbonAnalysisPeriod;
+  /** Site average annual rainfall (mm), used by every row that doesn't give its own */
+  rainfallMm?: number;
   plantings: PlantingInstance[];
   clearedPlantings: ClearedPlanting[];
   otherClearings: OtherClearing[];
@@ -144,7 +166,10 @@ export interface PlotJob {
    */
   activityArea: string;
   /** The chapter's land use change activity (j): 4 planting, 5 regeneration, 1-3 land clearing */
-  activity: '4' | '5' | '1-3';
+  activity: '1' | '2' | '3' | '4' | '5';
+  /** Clearings only */
+  landUse?: LandUseAfterClearing;
+  rainfallMm?: number;
   /** The input row this plot comes from */
   source: { list: 'plantings' | 'clearedPlantings' | 'otherClearings'; row: number };
   areaHa: number;
@@ -267,6 +292,7 @@ function standingAreaOn(scenario: CarbonScenario, planting: PlantingInstance, da
 
 export type ScenarioList =
   | 'reportingPeriod'
+  | 'site'
   | 'scenario'
   | 'plantings'
   | 'clearedPlantings'
@@ -287,6 +313,7 @@ export interface ScenarioIssue {
 
 const LIST_LABELS: Record<ScenarioList, string> = {
   reportingPeriod: 'Reporting period',
+  site: 'Site',
   scenario: 'Scenario',
   plantings: 'Plantings',
   clearedPlantings: 'Cleared plantings',
@@ -335,17 +362,30 @@ export function findScenarioIssues(scenario: CarbonScenario): ScenarioIssue[] {
     }
   };
 
+  if (scenario.rainfallMm !== undefined && !(scenario.rainfallMm > 0)) {
+    issues.push({ list: 'site', field: 'rainfallMm', message: 'average annual rainfall must be more than 0 mm' });
+  }
+  // A row's own rainfall overrides the site's; reported once against the site if neither is given
+  let rainfallNeeded = false;
   const checkSpecies = (list: ScenarioList, row: number, species: ClearingSpecies, rainfallMm: number | undefined, plantable: boolean) => {
     if (!SPECIES_CHOICES[species] || (plantable && !SPECIES_CHOICES[species].plantable)) {
       issues.push({ list, row, field: 'species', message: plantable ? 'choose a species that can be planted' : 'choose a species' });
-    } else if (needsRainfall(species) && !(rainfallMm! > 0)) {
-      issues.push({ list, row, field: 'rainfallMm', message: 'enter the average annual rainfall (it decides between the <500mm and >=500mm species)' });
+    } else if (needsRainfall(species) && rainfallMm !== undefined && !(rainfallMm > 0)) {
+      issues.push({ list, row, field: 'rainfallMm', message: 'average annual rainfall must be more than 0 mm' });
+    } else if (needsRainfall(species) && rainfallMm === undefined && scenario.rainfallMm === undefined) {
+      rainfallNeeded = true;
     }
   };
 
   const checkClearingType = (list: ScenarioList, row: number, clearingType: ClearingType) => {
     if (!CLEARING_EVENT_NAMES[clearingType]) {
       issues.push({ list, row, field: 'clearingType', message: 'choose a clearing type' });
+    }
+  };
+
+  const checkLandUse = (list: ScenarioList, row: number, landUse: LandUseAfterClearing) => {
+    if (!LAND_USE_LABELS[landUse]) {
+      issues.push({ list, row, field: 'landUse', message: 'choose the land use after clearing' });
     }
   };
 
@@ -412,6 +452,7 @@ export function findScenarioIssues(scenario: CarbonScenario): ScenarioIssue[] {
     }
     checkClearingType(list, row, c.clearingType);
     checkDebrisBurn(list, row, c.dateCleared, c.debrisBurnDate);
+    checkLandUse(list, row, c.landUse);
   });
 
   // A planting's clearings can't add up to more than was originally planted; flag the row that tips it over
@@ -432,11 +473,18 @@ export function findScenarioIssues(scenario: CarbonScenario): ScenarioIssue[] {
       });
   }
 
+  // Each is its own activity area in the results, so its name must not be shared
+  const otherNames = new Set<string>();
   otherClearings.forEach((o, row) => {
     const list = 'otherClearings';
     if (!o.description.trim()) {
       issues.push({ list, row, field: 'description', message: 'enter a description' });
+    } else if (plantingNames.has(o.description.trim())) {
+      issues.push({ list, row, field: 'description', message: `"${o.description}" is also a planting name; use a different description so the results can tell them apart` });
+    } else if (otherNames.has(o.description.trim())) {
+      issues.push({ list, row, field: 'description', message: `description "${o.description}" is used more than once` });
     }
+    otherNames.add(o.description.trim());
     if (!isValidDate(o.dateCleared)) {
       issues.push({ list, row, field: 'dateCleared', message: 'enter a valid date cleared' });
     } else if (!notAfterPeriod(o.dateCleared)) {
@@ -449,7 +497,12 @@ export function findScenarioIssues(scenario: CarbonScenario): ScenarioIssue[] {
     checkSpecies(list, row, o.species, o.rainfallMm, false);
     checkClearingType(list, row, o.clearingType);
     checkDebrisBurn(list, row, o.dateCleared, o.debrisBurnDate);
+    checkLandUse(list, row, o.landUse);
   });
+
+  if (rainfallNeeded) {
+    issues.push({ list: 'site', field: 'rainfallMm', message: 'enter the average annual rainfall (it decides between the <500mm and >=500mm native species)' });
+  }
 
   // Fires apply to the area of the planting still standing on the date
   const checkPlantingEvent = (list: ScenarioList, row: number, plantingName: string, date: number): boolean => {
@@ -514,6 +567,36 @@ export function findScenarioIssues(scenario: CarbonScenario): ScenarioIssue[] {
 }
 
 /**
+ * Things that don't stop the scenario running but should be checked: planting events on the same day.
+ * FullCAM rejects a wildfire, planned burn and growth pause all on one day ("Document not Ready"),
+ * though any two of them run. One warning per planting and date, located at its first event.
+ */
+export function findScenarioWarnings(scenario: CarbonScenario): ScenarioIssue[] {
+  const events = [
+    ...(scenario.wildfires ?? []).map((e, row) => ({ list: 'wildfires' as const, row, kind: 'wildfire', plantingName: e.plantingName, date: e.date })),
+    ...(scenario.plannedBurns ?? []).map((e, row) => ({ list: 'plannedBurns' as const, row, kind: 'planned burn', plantingName: e.plantingName, date: e.date })),
+    ...(scenario.growthPauses ?? []).map((e, row) => ({ list: 'growthPauses' as const, row, kind: 'growth pause', plantingName: e.plantingName, date: e.date })),
+  ].filter(e => e.plantingName.trim() && isValidDate(e.date));
+
+  const sameDay = new Map<string, typeof events>();
+  for (const event of events) {
+    const key = `${event.plantingName.trim()}|${event.date}`;
+    sameDay.set(key, [...(sameDay.get(key) ?? []), event]);
+  }
+
+  const warnings: ScenarioIssue[] = [];
+  for (const group of sameDay.values()) {
+    if (group.length < 2) continue;
+    const { list, row, plantingName, date } = group[0];
+    const message = new Set(group.map(e => e.kind)).size === 3
+      ? `"${plantingName}" has a wildfire, a planned burn and a growth pause on ${formatDate(date)}. FullCAM can't simulate all three on the same day, so this planting's plots will fail; move one of them to another day.`
+      : `"${plantingName}" has ${group.length} events on ${formatDate(date)} (${group.map(e => e.kind).join(', ')}). FullCAM can run these, but check the dates are right.`;
+    warnings.push({ list, row, message });
+  }
+  return warnings;
+}
+
+/**
  * Checks the scenario's inputs. Returns user-facing errors labelled by list and row;
  * an empty array means the scenario can be run.
  */
@@ -552,7 +635,9 @@ export function buildPlotJobs(scenario: CarbonScenario): PlotJob[] {
     areaHa: number,
     latitude: number,
     longitude: number,
-    activities: PlotActivities
+    activities: PlotActivities,
+    rainfallMm: number | undefined,
+    landUse?: LandUseAfterClearing
   ) => {
     const name = activities.planting?.name ?? activities.clearing?.name ?? label;
     const isClearing = activities.clearing !== undefined;
@@ -562,7 +647,9 @@ export function buildPlotJobs(scenario: CarbonScenario): PlotJob[] {
         ? `${name}, cleared ${formatDate(activities.clearing!.date)}`
         : name,
       // Native Species Regeneration plantings are human-induced natural regeneration (j = 5)
-      activity: isClearing ? '1-3' : activities.speciesId === 33 || activities.speciesId === 34 ? '5' : '4',
+      activity: landUse ? landClearingActivity(landUse) : activities.speciesId === 33 || activities.speciesId === 34 ? '5' : '4',
+      landUse,
+      rainfallMm,
       source,
       areaHa,
       latitude,
@@ -573,7 +660,8 @@ export function buildPlotJobs(scenario: CarbonScenario): PlotJob[] {
   };
 
   scenario.plantings.forEach((planting, row) => {
-    const speciesId = resolveSpeciesId(planting.species, planting.rainfallMm);
+    const rainfallMm = planting.rainfallMm ?? scenario.rainfallMm;
+    const speciesId = resolveSpeciesId(planting.species, rainfallMm);
     const planted = { date: planting.datePlanted, name: planting.name };
     const fires = plantingFires(planting);
     const growthPauses: GrowthPauseActivity[] = (scenario.growthPauses ?? [])
@@ -591,7 +679,7 @@ export function buildPlotJobs(scenario: CarbonScenario): PlotJob[] {
         planting: planted,
         fires,
         growthPauses,
-      });
+      }, rainfallMm);
     }
     for (const { c, clearedRow } of clearings) {
       if (beforeLookback(c.dateCleared, period)) {
@@ -604,7 +692,7 @@ export function buildPlotJobs(scenario: CarbonScenario): PlotJob[] {
         // Events on the clearing day happen after it, on the standing area only
         fires: [...fires.filter(f => f.date < c.dateCleared), ...debrisBurn(c.debrisBurnDate)],
         growthPauses: growthPauses.filter(g => g.date < c.dateCleared),
-      });
+      }, rainfallMm, c.landUse);
     }
   });
 
@@ -612,8 +700,9 @@ export function buildPlotJobs(scenario: CarbonScenario): PlotJob[] {
     if (beforeLookback(clearing.dateCleared, period)) {
       return;
     }
+    const rainfallMm = clearing.rainfallMm ?? scenario.rainfallMm;
     addJob(`Other clearing "${clearing.description}"`, { list: 'otherClearings', row }, clearing.areaClearedHa, clearing.latitude, clearing.longitude, {
-      speciesId: resolveSpeciesId(clearing.species, clearing.rainfallMm),
+      speciesId: resolveSpeciesId(clearing.species, rainfallMm),
       clearing: {
         date: clearing.dateCleared,
         type: clearing.clearingType,
@@ -622,7 +711,7 @@ export function buildPlotJobs(scenario: CarbonScenario): PlotJob[] {
         name: clearing.description,
       },
       fires: debrisBurn(clearing.debrisBurnDate),
-    });
+    }, rainfallMm, clearing.landUse);
   });
 
   return jobs;
